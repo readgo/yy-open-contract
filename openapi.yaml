@@ -55,6 +55,55 @@ paths:
                 $ref: '#/components/schemas/CurrentUserEnvelope'
         default:
           $ref: '#/components/responses/ErrorResponse'
+    patch:
+      operationId: updateProfile
+      summary: Change the caller's own display name or time zone
+      description: >
+        Self-service only: it always applies to the account behind the token, so a
+        signed-in operator can fix their own name and clock without asking somebody
+        with a wider scope. Username, group and status are not part of the body.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUserEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/v1/auth/me/password:
+    put:
+      operationId: changeOwnPassword
+      summary: Change the caller's own password
+      description: >
+        The current password is required, so a borrowed session cannot silently
+        take over the account. A successful change revokes every other token and
+        returns a fresh one, which keeps the caller signed in while signing out
+        whatever else was using the old password.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Password changed, new token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
 
   /api/v1/groups/tree:
     get:
@@ -177,6 +226,35 @@ paths:
       responses:
         '200':
           description: Moved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupNodeEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/v1/groups/{groupId}/reorder:
+    post:
+      operationId: reorderGroup
+      summary: Swap a group with the sibling above or below it
+      description: >
+        Siblings are ordered by their three digit slot, so moving one step is a
+        swap of slots. Both subtrees are renumbered with the same prefix
+        rewrite a move uses, which keeps pre-order equal to code order. The first
+        sibling cannot move up and the last one cannot move down; both are
+        rejected rather than silently ignored.
+      tags: [groups]
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderGroupRequest'
+      responses:
+        '200':
+          description: Reordered
           content:
             application/json:
               schema:
@@ -548,6 +626,39 @@ components:
         newParentId:
           type: string
           format: uuid
+
+    ReorderGroupRequest:
+      type: object
+      required: [direction]
+      properties:
+        direction:
+          $ref: '#/components/schemas/GroupDirection'
+
+    GroupDirection:
+      type: string
+      enum: [UP, DOWN]
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 64
+        timezone:
+          type: string
+          description: IANA name, e.g. Asia/Shanghai. A numeric offset is rejected.
+
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+          minLength: 8
+          maxLength: 128
 
     # --- accounts -------------------------------------------------------
     Account:

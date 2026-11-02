@@ -41,6 +41,24 @@ func (e AccountStatus) Valid() bool {
 	}
 }
 
+// Defines values for GroupDirection.
+const (
+	DOWN GroupDirection = "DOWN"
+	UP   GroupDirection = "UP"
+)
+
+// Valid indicates whether the value is a known member of the GroupDirection enum.
+func (e GroupDirection) Valid() bool {
+	switch e {
+	case DOWN:
+		return true
+	case UP:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GroupStatus.
 const (
 	GroupStatusACTIVE   GroupStatus = "ACTIVE"
@@ -125,6 +143,12 @@ type AccountPageEnvelope struct {
 
 // AccountStatus defines model for AccountStatus.
 type AccountStatus string
+
+// ChangePasswordRequest defines model for ChangePasswordRequest.
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
 
 // CreateAccountRequest defines model for CreateAccountRequest.
 type CreateAccountRequest struct {
@@ -218,6 +242,9 @@ type GroupChildrenEnvelope struct {
 	TraceId string `json:"traceId"`
 }
 
+// GroupDirection defines model for GroupDirection.
+type GroupDirection string
+
 // GroupNode defines model for GroupNode.
 type GroupNode struct {
 	// AccountCount Accounts placed directly in this group.
@@ -294,6 +321,11 @@ type MoveGroupRequest struct {
 	NewParentId openapi_types.UUID `json:"newParentId"`
 }
 
+// ReorderGroupRequest defines model for ReorderGroupRequest.
+type ReorderGroupRequest struct {
+	Direction GroupDirection `json:"direction"`
+}
+
 // ResetPasswordRequest defines model for ResetPasswordRequest.
 type ResetPasswordRequest struct {
 	NewPassword string `json:"newPassword"`
@@ -314,6 +346,14 @@ type UpdateGroupRequest struct {
 
 	// Status A disabled group rejects login for every account inside it.
 	Status *GroupStatus `json:"status,omitempty"`
+}
+
+// UpdateProfileRequest defines model for UpdateProfileRequest.
+type UpdateProfileRequest struct {
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// Timezone IANA name, e.g. Asia/Shanghai. A numeric offset is rejected.
+	Timezone *string `json:"timezone,omitempty"`
 }
 
 // AccountId defines model for AccountId.
@@ -357,6 +397,12 @@ type ResetAccountPasswordJSONRequestBody = ResetPasswordRequest
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
+// UpdateProfileJSONRequestBody defines body for UpdateProfile for application/json ContentType.
+type UpdateProfileJSONRequestBody = UpdateProfileRequest
+
+// ChangeOwnPasswordJSONRequestBody defines body for ChangeOwnPassword for application/json ContentType.
+type ChangeOwnPasswordJSONRequestBody = ChangePasswordRequest
+
 // CreateGroupJSONRequestBody defines body for CreateGroup for application/json ContentType.
 type CreateGroupJSONRequestBody = CreateGroupRequest
 
@@ -365,6 +411,9 @@ type UpdateGroupJSONRequestBody = UpdateGroupRequest
 
 // MoveGroupJSONRequestBody defines body for MoveGroup for application/json ContentType.
 type MoveGroupJSONRequestBody = MoveGroupRequest
+
+// ReorderGroupJSONRequestBody defines body for ReorderGroup for application/json ContentType.
+type ReorderGroupJSONRequestBody = ReorderGroupRequest
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -519,6 +568,42 @@ type ClientInterface interface {
 	// Corresponds with GET /api/v1/auth/me (the `GetCurrentUser` operationId).
 	GetCurrentUser(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// UpdateProfileWithBody Change the caller's own display name or time zone
+	//
+	// Self-service only: it always applies to the account behind the token, so a signed-in operator can fix their own name and clock without asking somebody with a wider scope. Username, group and status are not part of the body.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /api/v1/auth/me (the `UpdateProfile` operationId).
+	UpdateProfileWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateProfile Change the caller's own display name or time zone
+	//
+	// Self-service only: it always applies to the account behind the token, so a signed-in operator can fix their own name and clock without asking somebody with a wider scope. Username, group and status are not part of the body.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /api/v1/auth/me (the `UpdateProfile` operationId).
+	UpdateProfile(ctx context.Context, body UpdateProfileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ChangeOwnPasswordWithBody Change the caller's own password
+	//
+	// The current password is required, so a borrowed session cannot silently take over the account. A successful change revokes every other token and returns a fresh one, which keeps the caller signed in while signing out whatever else was using the old password.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /api/v1/auth/me/password (the `ChangeOwnPassword` operationId).
+	ChangeOwnPasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ChangeOwnPassword Change the caller's own password
+	//
+	// The current password is required, so a borrowed session cannot silently take over the account. A successful change revokes every other token and returns a fresh one, which keeps the caller signed in while signing out whatever else was using the old password.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /api/v1/auth/me/password (the `ChangeOwnPassword` operationId).
+	ChangeOwnPassword(ctx context.Context, body ChangeOwnPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// CreateGroupWithBody Create a child group
 	//
 	// When `code` is omitted the server allocates the next free three-digit slot under the parent. Deleted siblings keep their code, so numbers are never reused.
@@ -591,6 +676,24 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/v1/groups/{groupId}/move (the `MoveGroup` operationId).
 	MoveGroup(ctx context.Context, groupId GroupId, body MoveGroupJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReorderGroupWithBody Swap a group with the sibling above or below it
+	//
+	// Siblings are ordered by their three digit slot, so moving one step is a swap of slots. Both subtrees are renumbered with the same prefix rewrite a move uses, which keeps pre-order equal to code order. The first sibling cannot move up and the last one cannot move down; both are rejected rather than silently ignored.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/groups/{groupId}/reorder (the `ReorderGroup` operationId).
+	ReorderGroupWithBody(ctx context.Context, groupId GroupId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReorderGroup Swap a group with the sibling above or below it
+	//
+	// Siblings are ordered by their three digit slot, so moving one step is a swap of slots. Both subtrees are renumbered with the same prefix rewrite a move uses, which keeps pre-order equal to code order. The first sibling cannot move up and the last one cannot move down; both are rejected rather than silently ignored.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/groups/{groupId}/reorder (the `ReorderGroup` operationId).
+	ReorderGroup(ctx context.Context, groupId GroupId, body ReorderGroupJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // ListAccounts List accounts inside the visible subtree
@@ -782,6 +885,82 @@ func (c *Client) GetCurrentUser(ctx context.Context, reqEditors ...RequestEditor
 	return c.Client.Do(req)
 }
 
+// UpdateProfileWithBody Change the caller's own display name or time zone
+//
+// Self-service only: it always applies to the account behind the token, so a signed-in operator can fix their own name and clock without asking somebody with a wider scope. Username, group and status are not part of the body.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /api/v1/auth/me (the `UpdateProfile` operationId).
+func (c *Client) UpdateProfileWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateProfileRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateProfile Change the caller's own display name or time zone
+//
+// Self-service only: it always applies to the account behind the token, so a signed-in operator can fix their own name and clock without asking somebody with a wider scope. Username, group and status are not part of the body.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /api/v1/auth/me (the `UpdateProfile` operationId).
+func (c *Client) UpdateProfile(ctx context.Context, body UpdateProfileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateProfileRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ChangeOwnPasswordWithBody Change the caller's own password
+//
+// The current password is required, so a borrowed session cannot silently take over the account. A successful change revokes every other token and returns a fresh one, which keeps the caller signed in while signing out whatever else was using the old password.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /api/v1/auth/me/password (the `ChangeOwnPassword` operationId).
+func (c *Client) ChangeOwnPasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChangeOwnPasswordRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ChangeOwnPassword Change the caller's own password
+//
+// The current password is required, so a borrowed session cannot silently take over the account. A successful change revokes every other token and returns a fresh one, which keeps the caller signed in while signing out whatever else was using the old password.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /api/v1/auth/me/password (the `ChangeOwnPassword` operationId).
+func (c *Client) ChangeOwnPassword(ctx context.Context, body ChangeOwnPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChangeOwnPasswordRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // CreateGroupWithBody Create a child group
 //
 // When `code` is omitted the server allocates the next free three-digit slot under the parent. Deleted siblings keep their code, so numbers are never reused.
@@ -935,6 +1114,44 @@ func (c *Client) MoveGroupWithBody(ctx context.Context, groupId GroupId, content
 // Corresponds with POST /api/v1/groups/{groupId}/move (the `MoveGroup` operationId).
 func (c *Client) MoveGroup(ctx context.Context, groupId GroupId, body MoveGroupJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewMoveGroupRequest(c.Server, groupId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReorderGroupWithBody Swap a group with the sibling above or below it
+//
+// Siblings are ordered by their three digit slot, so moving one step is a swap of slots. Both subtrees are renumbered with the same prefix rewrite a move uses, which keeps pre-order equal to code order. The first sibling cannot move up and the last one cannot move down; both are rejected rather than silently ignored.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/groups/{groupId}/reorder (the `ReorderGroup` operationId).
+func (c *Client) ReorderGroupWithBody(ctx context.Context, groupId GroupId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReorderGroupRequestWithBody(c.Server, groupId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReorderGroup Swap a group with the sibling above or below it
+//
+// Siblings are ordered by their three digit slot, so moving one step is a swap of slots. Both subtrees are renumbered with the same prefix rewrite a move uses, which keeps pre-order equal to code order. The first sibling cannot move up and the last one cannot move down; both are rejected rather than silently ignored.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/groups/{groupId}/reorder (the `ReorderGroup` operationId).
+func (c *Client) ReorderGroup(ctx context.Context, groupId GroupId, body ReorderGroupJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReorderGroupRequest(c.Server, groupId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1294,6 +1511,86 @@ func NewGetCurrentUserRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewUpdateProfileRequest calls the generic UpdateProfile builder with application/json body
+func NewUpdateProfileRequest(server string, body UpdateProfileJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateProfileRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewUpdateProfileRequestWithBody constructs an http.Request for the UpdateProfile method, with any body, and a specified content type
+func NewUpdateProfileRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/me")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewChangeOwnPasswordRequest calls the generic ChangeOwnPassword builder with application/json body
+func NewChangeOwnPasswordRequest(server string, body ChangeOwnPasswordJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewChangeOwnPasswordRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewChangeOwnPasswordRequestWithBody constructs an http.Request for the ChangeOwnPassword method, with any body, and a specified content type
+func NewChangeOwnPasswordRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/me/password")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewCreateGroupRequest calls the generic CreateGroup builder with application/json body
 func NewCreateGroupRequest(server string, body CreateGroupJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -1523,6 +1820,53 @@ func NewMoveGroupRequestWithBody(server string, groupId GroupId, contentType str
 	return req, nil
 }
 
+// NewReorderGroupRequest calls the generic ReorderGroup builder with application/json body
+func NewReorderGroupRequest(server string, groupId GroupId, body ReorderGroupJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReorderGroupRequestWithBody(server, groupId, "application/json", bodyReader)
+}
+
+// NewReorderGroupRequestWithBody constructs an http.Request for the ReorderGroup method, with any body, and a specified content type
+func NewReorderGroupRequestWithBody(server string, groupId GroupId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "groupId", groupId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/groups/%s/reorder", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1652,6 +1996,42 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/v1/auth/me (the `GetCurrentUser` operationId).
 	GetCurrentUserWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetCurrentUserResponse, error)
 
+	// UpdateProfileWithBodyWithResponse Change the caller's own display name or time zone
+	//
+	// Self-service only: it always applies to the account behind the token, so a signed-in operator can fix their own name and clock without asking somebody with a wider scope. Username, group and status are not part of the body.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/v1/auth/me (the `UpdateProfile` operationId).
+	UpdateProfileWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProfileResponse, error)
+
+	// UpdateProfileWithResponse Change the caller's own display name or time zone
+	//
+	// Self-service only: it always applies to the account behind the token, so a signed-in operator can fix their own name and clock without asking somebody with a wider scope. Username, group and status are not part of the body.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/v1/auth/me (the `UpdateProfile` operationId).
+	UpdateProfileWithResponse(ctx context.Context, body UpdateProfileJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProfileResponse, error)
+
+	// ChangeOwnPasswordWithBodyWithResponse Change the caller's own password
+	//
+	// The current password is required, so a borrowed session cannot silently take over the account. A successful change revokes every other token and returns a fresh one, which keeps the caller signed in while signing out whatever else was using the old password.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/v1/auth/me/password (the `ChangeOwnPassword` operationId).
+	ChangeOwnPasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeOwnPasswordResponse, error)
+
+	// ChangeOwnPasswordWithResponse Change the caller's own password
+	//
+	// The current password is required, so a borrowed session cannot silently take over the account. A successful change revokes every other token and returns a fresh one, which keeps the caller signed in while signing out whatever else was using the old password.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/v1/auth/me/password (the `ChangeOwnPassword` operationId).
+	ChangeOwnPasswordWithResponse(ctx context.Context, body ChangeOwnPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeOwnPasswordResponse, error)
+
 	// CreateGroupWithBodyWithResponse Create a child group
 	//
 	// When `code` is omitted the server allocates the next free three-digit slot under the parent. Deleted siblings keep their code, so numbers are never reused.
@@ -1730,6 +2110,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/v1/groups/{groupId}/move (the `MoveGroup` operationId).
 	MoveGroupWithResponse(ctx context.Context, groupId GroupId, body MoveGroupJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveGroupResponse, error)
+
+	// ReorderGroupWithBodyWithResponse Swap a group with the sibling above or below it
+	//
+	// Siblings are ordered by their three digit slot, so moving one step is a swap of slots. Both subtrees are renumbered with the same prefix rewrite a move uses, which keeps pre-order equal to code order. The first sibling cannot move up and the last one cannot move down; both are rejected rather than silently ignored.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/groups/{groupId}/reorder (the `ReorderGroup` operationId).
+	ReorderGroupWithBodyWithResponse(ctx context.Context, groupId GroupId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReorderGroupResponse, error)
+
+	// ReorderGroupWithResponse Swap a group with the sibling above or below it
+	//
+	// Siblings are ordered by their three digit slot, so moving one step is a swap of slots. Both subtrees are renumbered with the same prefix rewrite a move uses, which keeps pre-order equal to code order. The first sibling cannot move up and the last one cannot move down; both are rejected rather than silently ignored.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/groups/{groupId}/reorder (the `ReorderGroup` operationId).
+	ReorderGroupWithResponse(ctx context.Context, groupId GroupId, body ReorderGroupJSONRequestBody, reqEditors ...RequestEditorFn) (*ReorderGroupResponse, error)
 }
 
 type ListAccountsResponse struct {
@@ -2068,6 +2466,102 @@ func (r GetCurrentUserResponse) ContentType() string {
 	return ""
 }
 
+type UpdateProfileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *CurrentUserEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateProfileResponse) GetJSON200() *CurrentUserEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r UpdateProfileResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateProfileResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateProfileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateProfileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateProfileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ChangeOwnPasswordResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *LoginEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ChangeOwnPasswordResponse) GetJSON200() *LoginEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ChangeOwnPasswordResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ChangeOwnPasswordResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ChangeOwnPasswordResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ChangeOwnPasswordResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ChangeOwnPasswordResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type CreateGroupResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2356,6 +2850,54 @@ func (r MoveGroupResponse) ContentType() string {
 	return ""
 }
 
+type ReorderGroupResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GroupNodeEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReorderGroupResponse) GetJSON200() *GroupNodeEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ReorderGroupResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReorderGroupResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReorderGroupResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReorderGroupResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReorderGroupResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // ListAccountsWithResponse List accounts inside the visible subtree
 //
 // Returns a wrapper object for the known response body format(s).
@@ -2507,6 +3049,66 @@ func (c *ClientWithResponses) GetCurrentUserWithResponse(ctx context.Context, re
 	return ParseGetCurrentUserResponse(rsp)
 }
 
+// UpdateProfileWithBodyWithResponse Change the caller's own display name or time zone
+//
+// Self-service only: it always applies to the account behind the token, so a signed-in operator can fix their own name and clock without asking somebody with a wider scope. Username, group and status are not part of the body.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/v1/auth/me (the `UpdateProfile` operationId).
+func (c *ClientWithResponses) UpdateProfileWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProfileResponse, error) {
+	rsp, err := c.UpdateProfileWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateProfileResponse(rsp)
+}
+
+// UpdateProfileWithResponse Change the caller's own display name or time zone
+//
+// Self-service only: it always applies to the account behind the token, so a signed-in operator can fix their own name and clock without asking somebody with a wider scope. Username, group and status are not part of the body.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/v1/auth/me (the `UpdateProfile` operationId).
+func (c *ClientWithResponses) UpdateProfileWithResponse(ctx context.Context, body UpdateProfileJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProfileResponse, error) {
+	rsp, err := c.UpdateProfile(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateProfileResponse(rsp)
+}
+
+// ChangeOwnPasswordWithBodyWithResponse Change the caller's own password
+//
+// The current password is required, so a borrowed session cannot silently take over the account. A successful change revokes every other token and returns a fresh one, which keeps the caller signed in while signing out whatever else was using the old password.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/v1/auth/me/password (the `ChangeOwnPassword` operationId).
+func (c *ClientWithResponses) ChangeOwnPasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeOwnPasswordResponse, error) {
+	rsp, err := c.ChangeOwnPasswordWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseChangeOwnPasswordResponse(rsp)
+}
+
+// ChangeOwnPasswordWithResponse Change the caller's own password
+//
+// The current password is required, so a borrowed session cannot silently take over the account. A successful change revokes every other token and returns a fresh one, which keeps the caller signed in while signing out whatever else was using the old password.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/v1/auth/me/password (the `ChangeOwnPassword` operationId).
+func (c *ClientWithResponses) ChangeOwnPasswordWithResponse(ctx context.Context, body ChangeOwnPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeOwnPasswordResponse, error) {
+	rsp, err := c.ChangeOwnPassword(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseChangeOwnPasswordResponse(rsp)
+}
+
 // CreateGroupWithBodyWithResponse Create a child group
 //
 // When `code` is omitted the server allocates the next free three-digit slot under the parent. Deleted siblings keep their code, so numbers are never reused.
@@ -2638,6 +3240,36 @@ func (c *ClientWithResponses) MoveGroupWithResponse(ctx context.Context, groupId
 		return nil, err
 	}
 	return ParseMoveGroupResponse(rsp)
+}
+
+// ReorderGroupWithBodyWithResponse Swap a group with the sibling above or below it
+//
+// Siblings are ordered by their three digit slot, so moving one step is a swap of slots. Both subtrees are renumbered with the same prefix rewrite a move uses, which keeps pre-order equal to code order. The first sibling cannot move up and the last one cannot move down; both are rejected rather than silently ignored.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/groups/{groupId}/reorder (the `ReorderGroup` operationId).
+func (c *ClientWithResponses) ReorderGroupWithBodyWithResponse(ctx context.Context, groupId GroupId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReorderGroupResponse, error) {
+	rsp, err := c.ReorderGroupWithBody(ctx, groupId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReorderGroupResponse(rsp)
+}
+
+// ReorderGroupWithResponse Swap a group with the sibling above or below it
+//
+// Siblings are ordered by their three digit slot, so moving one step is a swap of slots. Both subtrees are renumbered with the same prefix rewrite a move uses, which keeps pre-order equal to code order. The first sibling cannot move up and the last one cannot move down; both are rejected rather than silently ignored.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/groups/{groupId}/reorder (the `ReorderGroup` operationId).
+func (c *ClientWithResponses) ReorderGroupWithResponse(ctx context.Context, groupId GroupId, body ReorderGroupJSONRequestBody, reqEditors ...RequestEditorFn) (*ReorderGroupResponse, error) {
+	rsp, err := c.ReorderGroup(ctx, groupId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReorderGroupResponse(rsp)
 }
 
 // ParseListAccountsResponse parses an HTTP response from a ListAccountsWithResponse call
@@ -2871,6 +3503,72 @@ func ParseGetCurrentUserResponse(rsp *http.Response) (*GetCurrentUserResponse, e
 	return response, nil
 }
 
+// ParseUpdateProfileResponse parses an HTTP response from a UpdateProfileWithResponse call
+func ParseUpdateProfileResponse(rsp *http.Response) (*UpdateProfileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateProfileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CurrentUserEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseChangeOwnPasswordResponse parses an HTTP response from a ChangeOwnPasswordWithResponse call
+func ParseChangeOwnPasswordResponse(rsp *http.Response) (*ChangeOwnPasswordResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ChangeOwnPasswordResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LoginEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseCreateGroupResponse parses an HTTP response from a CreateGroupWithResponse call
 func ParseCreateGroupResponse(rsp *http.Response) (*CreateGroupResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -3069,6 +3767,39 @@ func ParseMoveGroupResponse(rsp *http.Response) (*MoveGroupResponse, error) {
 	return response, nil
 }
 
+// ParseReorderGroupResponse parses an HTTP response from a ReorderGroupWithResponse call
+func ParseReorderGroupResponse(rsp *http.Response) (*ReorderGroupResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReorderGroupResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GroupNodeEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// ListAccounts List accounts inside the visible subtree
@@ -3092,6 +3823,12 @@ type ServerInterface interface {
 	// GetCurrentUser Return the identity behind the current token
 	// (GET /api/v1/auth/me)
 	GetCurrentUser(w http.ResponseWriter, r *http.Request)
+	// UpdateProfile Change the caller's own display name or time zone
+	// (PATCH /api/v1/auth/me)
+	UpdateProfile(w http.ResponseWriter, r *http.Request)
+	// ChangeOwnPassword Change the caller's own password
+	// (PUT /api/v1/auth/me/password)
+	ChangeOwnPassword(w http.ResponseWriter, r *http.Request)
 	// CreateGroup Create a child group
 	// (POST /api/v1/groups)
 	CreateGroup(w http.ResponseWriter, r *http.Request)
@@ -3110,6 +3847,9 @@ type ServerInterface interface {
 	// MoveGroup Move a group and its whole subtree under a new parent
 	// (POST /api/v1/groups/{groupId}/move)
 	MoveGroup(w http.ResponseWriter, r *http.Request, groupId GroupId)
+	// ReorderGroup Swap a group with the sibling above or below it
+	// (POST /api/v1/groups/{groupId}/reorder)
+	ReorderGroup(w http.ResponseWriter, r *http.Request, groupId GroupId)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -3158,6 +3898,18 @@ func (_ Unimplemented) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// UpdateProfile Change the caller's own display name or time zone
+// (PATCH /api/v1/auth/me)
+func (_ Unimplemented) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ChangeOwnPassword Change the caller's own password
+// (PUT /api/v1/auth/me/password)
+func (_ Unimplemented) ChangeOwnPassword(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // CreateGroup Create a child group
 // (POST /api/v1/groups)
 func (_ Unimplemented) CreateGroup(w http.ResponseWriter, r *http.Request) {
@@ -3191,6 +3943,12 @@ func (_ Unimplemented) ListGroupChildren(w http.ResponseWriter, r *http.Request,
 // MoveGroup Move a group and its whole subtree under a new parent
 // (POST /api/v1/groups/{groupId}/move)
 func (_ Unimplemented) MoveGroup(w http.ResponseWriter, r *http.Request, groupId GroupId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ReorderGroup Swap a group with the sibling above or below it
+// (POST /api/v1/groups/{groupId}/reorder)
+func (_ Unimplemented) ReorderGroup(w http.ResponseWriter, r *http.Request, groupId GroupId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3421,6 +4179,34 @@ func (siw *ServerInterfaceWrapper) GetCurrentUser(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// UpdateProfile operation middleware
+func (siw *ServerInterfaceWrapper) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateProfile(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ChangeOwnPassword operation middleware
+func (siw *ServerInterfaceWrapper) ChangeOwnPassword(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ChangeOwnPassword(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreateGroup operation middleware
 func (siw *ServerInterfaceWrapper) CreateGroup(w http.ResponseWriter, r *http.Request) {
 
@@ -3553,6 +4339,32 @@ func (siw *ServerInterfaceWrapper) MoveGroup(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ReorderGroup operation middleware
+func (siw *ServerInterfaceWrapper) ReorderGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "groupId" -------------
+	var groupId GroupId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "groupId", chi.URLParam(r, "groupId"), &groupId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "groupId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReorderGroup(w, r, groupId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -3673,6 +4485,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/auth/me", wrapper.GetCurrentUser)
 	})
 	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/auth/me", wrapper.UpdateProfile)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/auth/me/password", wrapper.ChangeOwnPassword)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/groups/tree", wrapper.GetGroupTree)
 	})
 	r.Group(func(r chi.Router) {
@@ -3689,6 +4507,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/groups/{groupId}/move", wrapper.MoveGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/groups/{groupId}/reorder", wrapper.ReorderGroup)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/accounts", wrapper.ListAccounts)
