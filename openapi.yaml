@@ -211,12 +211,24 @@ paths:
           in: query
           schema:
             $ref: '#/components/schemas/AccountStatus'
-        - name: cursor
+        - name: offset
           in: query
+          description: >
+            Number of rows to skip. Together with limit this is page * limit, so the
+            caller can jump to an arbitrary page and render a page number strip. The
+            response carries the total row count for exactly that purpose.
+
+            Offset paging repeats or skips a row when the list changes between two
+            requests. That is accepted here: this is an operator console where a full
+            refresh on the next action is the normal outcome, and being able to show
+            "page 7 of 12" is worth more than a stable cursor.
           schema:
-            type: string
+            type: integer
+            minimum: 0
+            default: 0
         - name: limit
           in: query
+          description: Rows per page.
           schema:
             type: integer
             minimum: 1
@@ -509,6 +521,11 @@ components:
           nullable: true
           pattern: '^[0-9]{3}$'
           description: Optional explicit slot. Omit to let the server allocate the next free one.
+        remark:
+          type: string
+          maxLength: 200
+          nullable: true
+          description: Free text shown in the group list. Has no effect on behaviour.
 
     UpdateGroupRequest:
       type: object
@@ -578,15 +595,21 @@ components:
 
     AccountPage:
       type: object
-      required: [items, nextCursor]
+      required: [items, total, offset, limit]
       properties:
         items:
           type: array
           items:
             $ref: '#/components/schemas/Account'
-        nextCursor:
-          type: string
-          nullable: true
+        total:
+          type: integer
+          description: Rows matching the filter, ignoring offset and limit.
+        offset:
+          type: integer
+          description: Offset this page was produced with, echoed back.
+        limit:
+          type: integer
+          description: Page size this page was produced with, echoed back.
 
     AccountPageEnvelope:
       allOf:

@@ -102,8 +102,16 @@ type AccountEnvelope struct {
 
 // AccountPage defines model for AccountPage.
 type AccountPage struct {
-	Items      []Account `json:"items"`
-	NextCursor *string   `json:"nextCursor"`
+	Items []Account `json:"items"`
+
+	// Limit Page size this page was produced with, echoed back.
+	Limit int `json:"limit"`
+
+	// Offset Offset this page was produced with, echoed back.
+	Offset int `json:"offset"`
+
+	// Total Rows matching the filter, ignoring offset and limit.
+	Total int `json:"total"`
 }
 
 // AccountPageEnvelope defines model for AccountPageEnvelope.
@@ -133,6 +141,9 @@ type CreateGroupRequest struct {
 	Code     *string            `json:"code,omitempty"`
 	Name     string             `json:"name"`
 	ParentId openapi_types.UUID `json:"parentId"`
+
+	// Remark Free text shown in the group list. Has no effect on behaviour.
+	Remark *string `json:"remark,omitempty"`
 }
 
 // CurrentUser defines model for CurrentUser.
@@ -325,8 +336,13 @@ type ListAccountsParams struct {
 	// Keyword Case-insensitive match on username or display name.
 	Keyword *string        `form:"keyword,omitempty" json:"keyword,omitempty"`
 	Status  *AccountStatus `form:"status,omitempty" json:"status,omitempty"`
-	Cursor  *string        `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit   *int           `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Number of rows to skip. Together with limit this is page * limit, so the caller can jump to an arbitrary page and render a page number strip. The response carries the total row count for exactly that purpose.
+	// Offset paging repeats or skips a row when the list changes between two requests. That is accepted here: this is an operator console where a full refresh on the next action is the normal outcome, and being able to show "page 7 of 12" is worth more than a stable cursor.
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Limit Rows per page.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateAccountJSONRequestBody defines body for CreateAccount for application/json ContentType.
@@ -1005,9 +1021,9 @@ func NewListAccountsRequest(server string, params *ListAccountsParams) (*http.Re
 
 		}
 
-		if params.Cursor != nil {
+		if params.Offset != nil {
 
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -3248,15 +3264,15 @@ func (siw *ServerInterfaceWrapper) ListAccounts(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// ------------- Optional query parameter "cursor" -------------
+	// ------------- Optional query parameter "offset" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
 		}
 		return
 	}
