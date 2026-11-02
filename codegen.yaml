@@ -1,0 +1,13 @@
+# Code generation settings for github.com/oapi-codegen/oapi-codegen.
+# Run through ./scripts/gen.sh, which pins the generator version.
+
+package: contract
+output: gen/go/api.gen.go
+generate:
+  models: true
+  chi-server: true
+  client: true
+output-options:
+  # Keep the whole model set even when an endpoint is temporarily unused, so a
+  # regenerated file does not churn when an operation is commented out.
+  skip-prune: true

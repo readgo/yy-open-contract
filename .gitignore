@@ -1,0 +1,5 @@
+# Contract repository: generated artifacts are committed on purpose, so the
+# only thing worth ignoring here is scratch output and local tool state.
+.tmp/
+*.log
+.DS_Store

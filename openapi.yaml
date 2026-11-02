@@ -1,0 +1,709 @@
+openapi: 3.0.3
+info:
+  title: yy-open API
+  version: 0.1.0
+  description: >
+    Contract for the yy-open management API.
+
+    This repository holds text only. There is no language implementation here:
+    Go and TypeScript types are generated from this file by their respective
+    repositories. Any change that needs a runtime behaviour must be expressed as
+    schema here first.
+
+    Response envelope is uniform: every response carries `ok` and `traceId`.
+    Clients branch on `error.code` only. HTTP status is still emitted with its
+    usual meaning, but application code must not parse it to decide what
+    happened. `error.message` is an English developer diagnostic and must never
+    be rendered to an end user.
+servers:
+  - url: /
+    description: Paths below already include the /api/v1 prefix.
+
+paths:
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      summary: Exchange credentials for an access token
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/v1/auth/me:
+    get:
+      operationId: getCurrentUser
+      summary: Return the identity behind the current token
+      tags: [auth]
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUserEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/v1/groups/tree:
+    get:
+      operationId: getGroupTree
+      summary: Return the visible group tree in pre-order
+      description: >
+        Nodes are ordered by code with the C collation, which is exactly pre-order.
+        The result is flat; the client assembles the tree from parentId. Only the
+        subtree the caller may see is returned.
+      tags: [groups]
+      responses:
+        '200':
+          description: Flat pre-ordered node list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupNodeListEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/v1/groups/{groupId}/children:
+    get:
+      operationId: listGroupChildren
+      summary: List direct children and preview the next available code
+      tags: [groups]
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+      responses:
+        '200':
+          description: Children plus code preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupChildrenEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/v1/groups:
+    post:
+      operationId: createGroup
+      summary: Create a child group
+      description: >
+        When `code` is omitted the server allocates the next free three-digit
+        slot under the parent. Deleted siblings keep their code, so numbers are
+        never reused.
+      tags: [groups]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGroupRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupNodeEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/v1/groups/{groupId}:
+    patch:
+      operationId: updateGroup
+      summary: Rename, enable, disable or annotate a group
+      description: Code and parent are immutable here; moving is a separate operation.
+      tags: [groups]
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateGroupRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupNodeEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+    delete:
+      operationId: deleteGroup
+      summary: Delete an empty group
+      description: Rejected when the group has children or accounts.
+      tags: [groups]
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/v1/groups/{groupId}/move:
+    post:
+      operationId: moveGroup
+      summary: Move a group and its whole subtree under a new parent
+      description: >
+        The subtree is renumbered in a single transaction: every descendant's
+        code has the old prefix replaced by the new one. Relative order inside
+        the subtree is preserved.
+      tags: [groups]
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveGroupRequest'
+      responses:
+        '200':
+          description: Moved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupNodeEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/v1/accounts:
+    get:
+      operationId: listAccounts
+      summary: List accounts inside the visible subtree
+      tags: [accounts]
+      parameters:
+        - name: groupCode
+          in: query
+          description: Return accounts under this code prefix. Omit for the whole visible scope.
+          schema:
+            type: string
+        - name: withDescendants
+          in: query
+          description: Include groups below groupCode. Defaults to true.
+          schema:
+            type: boolean
+            default: true
+        - name: keyword
+          in: query
+          description: Case-insensitive match on username or display name.
+          schema:
+            type: string
+            maxLength: 64
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/AccountStatus'
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 20
+      responses:
+        '200':
+          description: Page of accounts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountPageEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+    post:
+      operationId: createAccount
+      summary: Create an account
+      description: >
+        The account must belong to a group. A caller can only place accounts
+        inside its own visible subtree, otherwise the parent group is reported
+        as not found.
+      tags: [accounts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/v1/accounts/{accountId}:
+    patch:
+      operationId: updateAccount
+      summary: Update profile, group, status or timezone
+      description: >
+        Changing group, status or password bumps tokenVersion, so tokens issued
+        before the change stop working immediately.
+      tags: [accounts]
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAccountRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+    delete:
+      operationId: deleteAccount
+      summary: Soft-delete an account
+      tags: [accounts]
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/v1/accounts/{accountId}/reset-password:
+    post:
+      operationId: resetAccountPassword
+      summary: Set a new password and invalidate existing tokens
+      tags: [accounts]
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+components:
+
+  parameters:
+    GroupId:
+      name: groupId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    ErrorResponse:
+      description: >
+        Any non-2xx outcome. The envelope shape is identical to a success
+        response, only `ok` is false and `error` is set instead of `data`.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+
+    # --- envelope -------------------------------------------------------
+    EnvelopeBase:
+      type: object
+      required: [ok, traceId]
+      properties:
+        ok:
+          type: boolean
+        traceId:
+          type: string
+          description: Correlation id, always present, echoed from the X-Request-Id header when supplied.
+
+    ErrorBody:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: >
+            Uppercase snake case constant. This is the only field application
+            code may branch on.
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        message:
+          type: string
+          description: English developer diagnostic. Never rendered to end users.
+        details:
+          type: object
+          additionalProperties:
+            type: string
+
+    ErrorEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          required: [error]
+          properties:
+            error:
+              $ref: '#/components/schemas/ErrorBody'
+
+    EmptyEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              additionalProperties: false
+
+    # --- enums ----------------------------------------------------------
+    GroupStatus:
+      type: string
+      enum: [ACTIVE, DISABLED]
+      description: A disabled group rejects login for every account inside it.
+
+    AccountStatus:
+      type: string
+      enum: [ACTIVE, DISABLED, LOCKED]
+
+    # --- groups ---------------------------------------------------------
+    GroupNode:
+      type: object
+      required: [id, code, name, level, status, hasChildren, accountCount, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        code:
+          type: string
+          description: >
+            Speed-lookup code. Root is the empty string, level two is 000-999,
+            level three concatenates another three digits, and so on up to level
+            20 (57 characters). Descendant queries are prefix matches on this
+            value, and ordering by it in the C collation is pre-order.
+          pattern: '^([0-9]{3}){0,19}$'
+        name:
+          type: string
+        level:
+          type: integer
+          minimum: 1
+          maximum: 20
+          description: Derived from the code length, computed by the database, never written by the application.
+        status:
+          $ref: '#/components/schemas/GroupStatus'
+        remark:
+          type: string
+          nullable: true
+        hasChildren:
+          type: boolean
+        accountCount:
+          type: integer
+          description: Accounts placed directly in this group.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    GroupNodeListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/GroupNode'
+
+    GroupNodeEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/GroupNode'
+
+    GroupChildren:
+      type: object
+      required: [items, nextAvailableCode]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupNode'
+        nextAvailableCode:
+          type: string
+          nullable: true
+          description: Next free three-digit slot, shown as a hint when creating. Null when the parent already holds 1000 children.
+
+    GroupChildrenEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/GroupChildren'
+
+    CreateGroupRequest:
+      type: object
+      required: [parentId, name]
+      properties:
+        parentId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        code:
+          type: string
+          nullable: true
+          pattern: '^[0-9]{3}$'
+          description: Optional explicit slot. Omit to let the server allocate the next free one.
+
+    UpdateGroupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        status:
+          $ref: '#/components/schemas/GroupStatus'
+        remark:
+          type: string
+          nullable: true
+          maxLength: 255
+
+    MoveGroupRequest:
+      type: object
+      required: [newParentId]
+      properties:
+        newParentId:
+          type: string
+          format: uuid
+
+    # --- accounts -------------------------------------------------------
+    Account:
+      type: object
+      required: [id, username, displayName, groupId, groupCode, groupName, status, timezone, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        displayName:
+          type: string
+        groupId:
+          type: string
+          format: uuid
+        groupCode:
+          type: string
+        groupName:
+          type: string
+        status:
+          $ref: '#/components/schemas/AccountStatus'
+        timezone:
+          type: string
+          description: IANA time zone name, e.g. Asia/Shanghai. Never a numeric offset.
+        lastLoginAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AccountEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/Account'
+
+    AccountPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Account'
+        nextCursor:
+          type: string
+          nullable: true
+
+    AccountPageEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AccountPage'
+
+    CreateAccountRequest:
+      type: object
+      required: [groupId, username, password]
+      properties:
+        groupId:
+          type: string
+          format: uuid
+        username:
+          type: string
+          pattern: '^[A-Za-z0-9._-]{3,32}$'
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+        displayName:
+          type: string
+          maxLength: 64
+        timezone:
+          type: string
+          maxLength: 64
+
+    UpdateAccountRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+          maxLength: 64
+        groupId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/AccountStatus'
+        timezone:
+          type: string
+          maxLength: 64
+
+    ResetPasswordRequest:
+      type: object
+      required: [newPassword]
+      properties:
+        newPassword:
+          type: string
+          minLength: 8
+          maxLength: 128
+
+    # --- auth -----------------------------------------------------------
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 64
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+
+    CurrentUser:
+      type: object
+      required: [id, username, displayName, groupId, groupCode, timezone]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        displayName:
+          type: string
+        groupId:
+          type: string
+          format: uuid
+        groupCode:
+          type: string
+        timezone:
+          type: string
+
+    LoginResult:
+      type: object
+      required: [accessToken, tokenType, expiresIn, user]
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresIn:
+          type: integer
+          description: Access token lifetime in seconds.
+        user:
+          $ref: '#/components/schemas/CurrentUser'
+
+    LoginEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/LoginResult'
+
+    CurrentUserEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/CurrentUser'
