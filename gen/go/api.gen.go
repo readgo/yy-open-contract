@@ -551,12 +551,28 @@ type ClientInterface interface {
 
 	// LoginWithBody Exchange credentials for an access token
 	//
+	// The only endpoint that does not require a token. Wrong credentials answer
+	// 401 with `AUTH_INVALID_CREDENTIALS`; a disabled account answers 403 with
+	// `ACCOUNT_DISABLED`.
+	//
+	// The response carries the token, its lifetime in seconds and the identity
+	// it belongs to, so a client does not need a second request after signing
+	// in.
+	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /api/v1/auth/login (the `Login` operationId).
 	LoginWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// Login Exchange credentials for an access token
+	//
+	// The only endpoint that does not require a token. Wrong credentials answer
+	// 401 with `AUTH_INVALID_CREDENTIALS`; a disabled account answers 403 with
+	// `ACCOUNT_DISABLED`.
+	//
+	// The response carries the token, its lifetime in seconds and the identity
+	// it belongs to, so a client does not need a second request after signing
+	// in.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -838,6 +854,14 @@ func (c *Client) ResetAccountPassword(ctx context.Context, accountId AccountId, 
 
 // LoginWithBody Exchange credentials for an access token
 //
+// The only endpoint that does not require a token. Wrong credentials answer
+// 401 with `AUTH_INVALID_CREDENTIALS`; a disabled account answers 403 with
+// `ACCOUNT_DISABLED`.
+//
+// The response carries the token, its lifetime in seconds and the identity
+// it belongs to, so a client does not need a second request after signing
+// in.
+//
 // Takes any type of body and a specified content type.
 //
 // Corresponds with POST /api/v1/auth/login (the `Login` operationId).
@@ -854,6 +878,14 @@ func (c *Client) LoginWithBody(ctx context.Context, contentType string, body io.
 }
 
 // Login Exchange credentials for an access token
+//
+// The only endpoint that does not require a token. Wrong credentials answer
+// 401 with `AUTH_INVALID_CREDENTIALS`; a disabled account answers 403 with
+// `ACCOUNT_DISABLED`.
+//
+// The response carries the token, its lifetime in seconds and the identity
+// it belongs to, so a client does not need a second request after signing
+// in.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -1977,12 +2009,28 @@ type ClientWithResponsesInterface interface {
 
 	// LoginWithBodyWithResponse Exchange credentials for an access token
 	//
+	// The only endpoint that does not require a token. Wrong credentials answer
+	// 401 with `AUTH_INVALID_CREDENTIALS`; a disabled account answers 403 with
+	// `ACCOUNT_DISABLED`.
+	//
+	// The response carries the token, its lifetime in seconds and the identity
+	// it belongs to, so a client does not need a second request after signing
+	// in.
+	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /api/v1/auth/login (the `Login` operationId).
 	LoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginResponse, error)
 
 	// LoginWithResponse Exchange credentials for an access token
+	//
+	// The only endpoint that does not require a token. Wrong credentials answer
+	// 401 with `AUTH_INVALID_CREDENTIALS`; a disabled account answers 403 with
+	// `ACCOUNT_DISABLED`.
+	//
+	// The response carries the token, its lifetime in seconds and the identity
+	// it belongs to, so a client does not need a second request after signing
+	// in.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -3012,6 +3060,14 @@ func (c *ClientWithResponses) ResetAccountPasswordWithResponse(ctx context.Conte
 
 // LoginWithBodyWithResponse Exchange credentials for an access token
 //
+// The only endpoint that does not require a token. Wrong credentials answer
+// 401 with `AUTH_INVALID_CREDENTIALS`; a disabled account answers 403 with
+// `ACCOUNT_DISABLED`.
+//
+// The response carries the token, its lifetime in seconds and the identity
+// it belongs to, so a client does not need a second request after signing
+// in.
+//
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with POST /api/v1/auth/login (the `Login` operationId).
@@ -3024,6 +3080,14 @@ func (c *ClientWithResponses) LoginWithBodyWithResponse(ctx context.Context, con
 }
 
 // LoginWithResponse Exchange credentials for an access token
+//
+// The only endpoint that does not require a token. Wrong credentials answer
+// 401 with `AUTH_INVALID_CREDENTIALS`; a disabled account answers 403 with
+// `ACCOUNT_DISABLED`.
+//
+// The response carries the token, its lifetime in seconds and the identity
+// it belongs to, so a client does not need a second request after signing
+// in.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //

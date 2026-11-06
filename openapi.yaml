@@ -2,29 +2,68 @@ openapi: 3.0.3
 info:
   title: yy-open API
   version: 0.1.0
-  description: >
-    Contract for the yy-open management API.
+  description: |
+    Management API for the yy-open vending platform: the organisation tree,
+    operator accounts and the sign-in flow. All traffic is JSON over HTTPS.
 
-    This repository holds text only. There is no language implementation here:
-    Go and TypeScript types are generated from this file by their respective
-    repositories. Any change that needs a runtime behaviour must be expressed as
-    schema here first.
+    **Authentication.** Send `Authorization: Bearer <accessToken>` on every
+    request except `POST /api/v1/auth/login`. A request without the header
+    answers 401 with `AUTH_REQUIRED`; an expired token answers 401 with
+    `AUTH_TOKEN_EXPIRED`; an invalid or revoked one answers 401 with
+    `AUTH_TOKEN_INVALID`. Sign in again to obtain a new token.
 
-    Response envelope is uniform: every response carries `ok` and `traceId`.
-    Clients branch on `error.code` only. HTTP status is still emitted with its
-    usual meaning, but application code must not parse it to decide what
-    happened. `error.message` is an English developer diagnostic and must never
-    be rendered to an end user.
+    **Response envelope.** Every response carries `ok` and `traceId`. On success
+    `data` holds the payload; on failure `error` holds `code`, `message` and
+    optional `details`.
+
+    **Branch on `error.code`, not the HTTP status.** Status is emitted with its
+    usual meaning for proxies and logs, but client logic must decide on the code.
+    `error.message` is an English diagnostic for developers and is never shown to
+    an end user - translate `error.code` instead.
+
+    **Time.** Timestamps are RFC 3339 in UTC with a trailing `Z`. Values are
+    stored and returned in UTC; the console renders them in the signed-in
+    account's time zone, which is why accounts carry a `timezone` field.
+
+    **Collections.** List endpoints take `limit` and `offset` and return `total`
+    next to `items`.
 servers:
   - url: /
     description: Paths below already include the /api/v1 prefix.
+
+tags:
+  - name: auth
+    description: |
+      Sign-in and the caller's own profile. The token issued here authorises
+      every other endpoint.
+  - name: groups
+    description: |
+      The organisation tree. Every account belongs to exactly one group. A
+      group's code is assigned by the server - three digits per level - so the
+      code itself carries the position under its parent.
+  - name: accounts
+    description: |
+      Operator accounts: status, password, display name and time zone.
+      Visibility follows the caller's own group and includes its descendants.
+
+security:
+  - bearerAuth: []
 
 paths:
   /api/v1/auth/login:
     post:
       operationId: login
       summary: Exchange credentials for an access token
+      description: |
+        The only endpoint that does not require a token. Wrong credentials answer
+        401 with `AUTH_INVALID_CREDENTIALS`; a disabled account answers 403 with
+        `ACCOUNT_DISABLED`.
+
+        The response carries the token, its lifetime in seconds and the identity
+        it belongs to, so a client does not need a second request after signing
+        in.
       tags: [auth]
+      security: []
       requestBody:
         required: true
         content:
@@ -410,6 +449,20 @@ paths:
           $ref: '#/components/responses/ErrorResponse'
 
 components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token returned by `POST /api/v1/auth/login`. Send it as
+        `Authorization: Bearer <accessToken>`.
+
+        The token is a signed JWT, but it is not trusted on its own: every request
+        re-reads the account behind it. A disabled account fails at once, a group
+        that has been disabled fails with `ACCOUNT_GROUP_DISABLED`, and changing a
+        password revokes every token issued before it.
 
   parameters:
     GroupId:
