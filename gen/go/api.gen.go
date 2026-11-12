@@ -41,6 +41,27 @@ func (e AccountStatus) Valid() bool {
 	}
 }
 
+// Defines values for DeviceLifecycle.
+const (
+	DeviceLifecycleDISABLED DeviceLifecycle = "DISABLED"
+	DeviceLifecycleENABLED  DeviceLifecycle = "ENABLED"
+	DeviceLifecycleRETIRED  DeviceLifecycle = "RETIRED"
+)
+
+// Valid indicates whether the value is a known member of the DeviceLifecycle enum.
+func (e DeviceLifecycle) Valid() bool {
+	switch e {
+	case DeviceLifecycleDISABLED:
+		return true
+	case DeviceLifecycleENABLED:
+		return true
+	case DeviceLifecycleRETIRED:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GroupDirection.
 const (
 	DOWN GroupDirection = "DOWN"
@@ -165,6 +186,27 @@ type AccountPageEnvelope struct {
 // AccountStatus defines model for AccountStatus.
 type AccountStatus string
 
+// BindDeviceEnvelope defines model for BindDeviceEnvelope.
+type BindDeviceEnvelope struct {
+	Data BindDeviceResult `json:"data"`
+	Ok   bool             `json:"ok"`
+
+	// TraceId Correlation id, always present, echoed from the X-Request-Id header when supplied.
+	TraceId string `json:"traceId"`
+}
+
+// BindDeviceResult defines model for BindDeviceResult.
+type BindDeviceResult struct {
+	Code string `json:"code"`
+
+	// Credential Base64url of 32 random bytes, no padding. This is the only time it is ever returned: the device must store it, and the server keeps only an encrypted copy. The machine uses these 32 bytes as the AES key for every later envelope.
+	Credential string             `json:"credential"`
+	DeviceId   openapi_types.UUID `json:"deviceId"`
+
+	// ServerTime The server's own clock at the moment of binding. A machine that has just been powered on for the first time has no reliable time source, and this is where it gets one.
+	ServerTime time.Time `json:"serverTime"`
+}
+
 // ChangePasswordRequest defines model for ChangePasswordRequest.
 type ChangePasswordRequest struct {
 	CurrentPassword string `json:"currentPassword"`
@@ -181,6 +223,14 @@ type CreateAccountRequest struct {
 	RoleIds  *[]openapi_types.UUID `json:"roleIds,omitempty"`
 	Timezone *string               `json:"timezone,omitempty"`
 	Username string                `json:"username"`
+}
+
+// CreateDeviceRequest defines model for CreateDeviceRequest.
+type CreateDeviceRequest struct {
+	// GroupId The group the device belongs to. Must be inside the caller's visible scope.
+	GroupId openapi_types.UUID `json:"groupId"`
+	Model   *string            `json:"model,omitempty"`
+	Name    *string            `json:"name,omitempty"`
 }
 
 // CreateGroupRequest defines model for CreateGroupRequest.
@@ -229,6 +279,79 @@ type CurrentUserEnvelope struct {
 
 	// TraceId Correlation id, always present, echoed from the X-Request-Id header when supplied.
 	TraceId string `json:"traceId"`
+}
+
+// Device defines model for Device.
+type Device struct {
+	// Bound True once a machine has claimed the number and holds a credential. A device record exists before its machine does, so this is false until the machine is installed and switched on.
+	Bound   bool       `json:"bound"`
+	BoundAt *time.Time `json:"boundAt,omitempty"`
+
+	// BoundIp Source address of the claim, kept so a disputed binding can be traced.
+	BoundIp *string `json:"boundIp,omitempty"`
+
+	// Code `YYYYMMDD` followed by a sequence number, four digits wide and widened for a day that needs a fifth. Generated once and never changed, because it is also what an operator types into the machine. Do not sort by it: a day that crossed 9999 holds codes of two widths, and their text order then disagrees with the order they were created.
+	Code        string             `json:"code"`
+	CreatedAt   time.Time          `json:"createdAt"`
+	GroupCode   string             `json:"groupCode"`
+	GroupId     openapi_types.UUID `json:"groupId"`
+	GroupName   string             `json:"groupName"`
+	Id          openapi_types.UUID `json:"id"`
+	LastResetAt *time.Time         `json:"lastResetAt,omitempty"`
+
+	// Lifecycle ENABLED serves requests. DISABLED and RETIRED both refuse every device-side request alike; RETIRED additionally says the machine is out of service, and it is the only state a bound device can reach instead of being deleted.
+	Lifecycle DeviceLifecycle `json:"lifecycle"`
+	Model     string          `json:"model"`
+	Name      string          `json:"name"`
+
+	// Sn Serial number the machine reported when it bound. Read-only.
+	Sn        *string   `json:"sn,omitempty"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// DeviceEnvelope defines model for DeviceEnvelope.
+type DeviceEnvelope struct {
+	Data Device `json:"data"`
+	Ok   bool   `json:"ok"`
+
+	// TraceId Correlation id, always present, echoed from the X-Request-Id header when supplied.
+	TraceId string `json:"traceId"`
+}
+
+// DeviceLifecycle ENABLED serves requests. DISABLED and RETIRED both refuse every device-side request alike; RETIRED additionally says the machine is out of service, and it is the only state a bound device can reach instead of being deleted.
+type DeviceLifecycle string
+
+// DevicePage defines model for DevicePage.
+type DevicePage struct {
+	Items  []Device `json:"items"`
+	Limit  int      `json:"limit"`
+	Offset int      `json:"offset"`
+	Total  int      `json:"total"`
+}
+
+// DevicePageEnvelope defines model for DevicePageEnvelope.
+type DevicePageEnvelope struct {
+	Data DevicePage `json:"data"`
+	Ok   bool       `json:"ok"`
+
+	// TraceId Correlation id, always present, echoed from the X-Request-Id header when supplied.
+	TraceId string `json:"traceId"`
+}
+
+// DevicePingEnvelope defines model for DevicePingEnvelope.
+type DevicePingEnvelope struct {
+	Data DevicePingResult `json:"data"`
+	Ok   bool             `json:"ok"`
+
+	// TraceId Correlation id, always present, echoed from the X-Request-Id header when supplied.
+	TraceId string `json:"traceId"`
+}
+
+// DevicePingResult defines model for DevicePingResult.
+type DevicePingResult struct {
+	Code       string             `json:"code"`
+	DeviceId   openapi_types.UUID `json:"deviceId"`
+	ServerTime time.Time          `json:"serverTime"`
 }
 
 // EmptyEnvelope defines model for EmptyEnvelope.
@@ -480,6 +603,16 @@ type UpdateAccountRequest struct {
 	Timezone    *string             `json:"timezone,omitempty"`
 }
 
+// UpdateDeviceRequest defines model for UpdateDeviceRequest.
+type UpdateDeviceRequest struct {
+	GroupId *openapi_types.UUID `json:"groupId,omitempty"`
+
+	// Lifecycle ENABLED serves requests. DISABLED and RETIRED both refuse every device-side request alike; RETIRED additionally says the machine is out of service, and it is the only state a bound device can reach instead of being deleted.
+	Lifecycle *DeviceLifecycle `json:"lifecycle,omitempty"`
+	Model     *string          `json:"model,omitempty"`
+	Name      *string          `json:"name,omitempty"`
+}
+
 // UpdateGroupRequest defines model for UpdateGroupRequest.
 type UpdateGroupRequest struct {
 	Name   *string `json:"name,omitempty"`
@@ -508,6 +641,9 @@ type UpdateRoleRequest struct {
 
 // AccountId defines model for AccountId.
 type AccountId = openapi_types.UUID
+
+// DeviceId defines model for DeviceId.
+type DeviceId = openapi_types.UUID
 
 // GroupId defines model for GroupId.
 type GroupId = openapi_types.UUID
@@ -538,6 +674,24 @@ type ListAccountsParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListDevicesParams defines parameters for ListDevices.
+type ListDevicesParams struct {
+	// GroupCode Return devices under this code prefix. Omit for the whole visible scope.
+	GroupCode *string `form:"groupCode,omitempty" json:"groupCode,omitempty"`
+
+	// WithDescendants Include groups below groupCode. Defaults to true.
+	WithDescendants *bool `form:"withDescendants,omitempty" json:"withDescendants,omitempty"`
+
+	// Keyword Case-insensitive match on code, name, model or serial number.
+	Keyword   *string          `form:"keyword,omitempty" json:"keyword,omitempty"`
+	Lifecycle *DeviceLifecycle `form:"lifecycle,omitempty" json:"lifecycle,omitempty"`
+
+	// Bound Filter by binding state. Omit to return both. A device is bound once it has completed its one-time claim; see `POST /api/v1/device-api/bind`.
+	Bound  *bool `form:"bound,omitempty" json:"bound,omitempty"`
+	Offset *int  `form:"offset,omitempty" json:"offset,omitempty"`
+	Limit  *int  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // CreateAccountJSONRequestBody defines body for CreateAccount for application/json ContentType.
 type CreateAccountJSONRequestBody = CreateAccountRequest
 
@@ -558,6 +712,12 @@ type UpdateProfileJSONRequestBody = UpdateProfileRequest
 
 // ChangeOwnPasswordJSONRequestBody defines body for ChangeOwnPassword for application/json ContentType.
 type ChangeOwnPasswordJSONRequestBody = ChangePasswordRequest
+
+// CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
+type CreateDeviceJSONRequestBody = CreateDeviceRequest
+
+// UpdateDeviceJSONRequestBody defines body for UpdateDevice for application/json ContentType.
+type UpdateDeviceJSONRequestBody = UpdateDeviceRequest
 
 // CreateGroupJSONRequestBody defines body for CreateGroup for application/json ContentType.
 type CreateGroupJSONRequestBody = CreateGroupRequest
@@ -813,6 +973,105 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /api/v1/auth/me/password (the `ChangeOwnPassword` operationId).
 	ChangeOwnPassword(ctx context.Context, body ChangeOwnPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// BindDevice Claim a device number, once, and receive its credential
+	//
+	// The first thing a machine does after an operator types its number in. The
+	// envelope is encrypted with the program key that ships inside the device
+	// application, and carries the hardware serial number the machine read from
+	// itself.
+	//
+	// Answers 409 `DEVICE_ALREADY_BOUND` when the number has been claimed before -
+	// including when the same machine, with the same serial number, asks again.
+	// There is deliberately no self-service path back: a machine that reflashed its
+	// storage needs an operator to release the binding.
+	//
+	// No timestamp is validated here. A machine that has just been powered on for
+	// the first time usually has no correct clock, and refusing it would leave it
+	// with no way to ever get one.
+	//
+	// Corresponds with POST /api/v1/device-api/bind (the `BindDevice` operationId).
+	BindDevice(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PingDevice Prove that a bound device can authenticate
+	//
+	// A read-only call signed with the credential the device received when it bound. It exists so the binding can be verified end to end before any business endpoint depends on it.
+	//
+	// Corresponds with GET /api/v1/device-api/ping (the `PingDevice` operationId).
+	PingDevice(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListDevices List devices inside the visible subtree
+	//
+	// Corresponds with GET /api/v1/devices (the `ListDevices` operationId).
+	ListDevices(ctx context.Context, params *ListDevicesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateDeviceWithBody Create a device record
+	//
+	// The device number is generated by the server - `YYYYMMDD` plus a sequence
+	// number, four digits wide, widened for the day that needs a fifth - and it is
+	// never accepted from the caller. No credential is created here: one is minted
+	// when the device claims the number, which is the moment the machine identifies
+	// itself with a serial number.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/devices (the `CreateDevice` operationId).
+	CreateDeviceWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateDevice Create a device record
+	//
+	// The device number is generated by the server - `YYYYMMDD` plus a sequence
+	// number, four digits wide, widened for the day that needs a fifth - and it is
+	// never accepted from the caller. No credential is created here: one is minted
+	// when the device claims the number, which is the moment the machine identifies
+	// itself with a serial number.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/devices (the `CreateDevice` operationId).
+	CreateDevice(ctx context.Context, body CreateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteDevice Delete a device that has never been bound
+	//
+	// A bound device cannot be deleted, only retired: its serial number is the physical anchor, and dropping the row would leave a machine on site producing orders with nothing behind it.
+	//
+	// Corresponds with DELETE /api/v1/devices/{deviceId} (the `DeleteDevice` operationId).
+	DeleteDevice(ctx context.Context, deviceId DeviceId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetDevice Read one device
+	//
+	// Corresponds with GET /api/v1/devices/{deviceId} (the `GetDevice` operationId).
+	GetDevice(ctx context.Context, deviceId DeviceId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateDeviceWithBody Update name, model, group or lifecycle
+	//
+	// The serial number and the bound credential are not writable: they are facts reported by the machine. Rebinding is `POST /devices/{deviceId}/reset-binding` and must be done by a person.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /api/v1/devices/{deviceId} (the `UpdateDevice` operationId).
+	UpdateDeviceWithBody(ctx context.Context, deviceId DeviceId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateDevice Update name, model, group or lifecycle
+	//
+	// The serial number and the bound credential are not writable: they are facts reported by the machine. Rebinding is `POST /devices/{deviceId}/reset-binding` and must be done by a person.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /api/v1/devices/{deviceId} (the `UpdateDevice` operationId).
+	UpdateDevice(ctx context.Context, deviceId DeviceId, body UpdateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ResetDeviceBinding Release the binding so the machine can claim the number again
+	//
+	// Clears the serial number and the credential and returns the device to the
+	// unbound state; the next claim mints a fresh credential. The old one stops
+	// working at once.
+	//
+	// This is the only way to re-issue a credential, so it is its own permission
+	// point and it is recorded: who released it and when.
+	//
+	// Corresponds with POST /api/v1/devices/{deviceId}/reset-binding (the `ResetDeviceBinding` operationId).
+	ResetDeviceBinding(ctx context.Context, deviceId DeviceId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CreateGroupWithBody Create a child group
 	//
@@ -1318,6 +1577,205 @@ func (c *Client) ChangeOwnPasswordWithBody(ctx context.Context, contentType stri
 // Corresponds with PUT /api/v1/auth/me/password (the `ChangeOwnPassword` operationId).
 func (c *Client) ChangeOwnPassword(ctx context.Context, body ChangeOwnPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewChangeOwnPasswordRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// BindDevice Claim a device number, once, and receive its credential
+//
+// The first thing a machine does after an operator types its number in. The
+// envelope is encrypted with the program key that ships inside the device
+// application, and carries the hardware serial number the machine read from
+// itself.
+//
+// Answers 409 `DEVICE_ALREADY_BOUND` when the number has been claimed before -
+// including when the same machine, with the same serial number, asks again.
+// There is deliberately no self-service path back: a machine that reflashed its
+// storage needs an operator to release the binding.
+//
+// No timestamp is validated here. A machine that has just been powered on for
+// the first time usually has no correct clock, and refusing it would leave it
+// with no way to ever get one.
+//
+// Corresponds with POST /api/v1/device-api/bind (the `BindDevice` operationId).
+func (c *Client) BindDevice(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBindDeviceRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PingDevice Prove that a bound device can authenticate
+//
+// A read-only call signed with the credential the device received when it bound. It exists so the binding can be verified end to end before any business endpoint depends on it.
+//
+// Corresponds with GET /api/v1/device-api/ping (the `PingDevice` operationId).
+func (c *Client) PingDevice(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPingDeviceRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListDevices List devices inside the visible subtree
+//
+// Corresponds with GET /api/v1/devices (the `ListDevices` operationId).
+func (c *Client) ListDevices(ctx context.Context, params *ListDevicesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListDevicesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateDeviceWithBody Create a device record
+//
+// The device number is generated by the server - `YYYYMMDD` plus a sequence
+// number, four digits wide, widened for the day that needs a fifth - and it is
+// never accepted from the caller. No credential is created here: one is minted
+// when the device claims the number, which is the moment the machine identifies
+// itself with a serial number.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/devices (the `CreateDevice` operationId).
+func (c *Client) CreateDeviceWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateDeviceRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateDevice Create a device record
+//
+// The device number is generated by the server - `YYYYMMDD` plus a sequence
+// number, four digits wide, widened for the day that needs a fifth - and it is
+// never accepted from the caller. No credential is created here: one is minted
+// when the device claims the number, which is the moment the machine identifies
+// itself with a serial number.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/devices (the `CreateDevice` operationId).
+func (c *Client) CreateDevice(ctx context.Context, body CreateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateDeviceRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteDevice Delete a device that has never been bound
+//
+// A bound device cannot be deleted, only retired: its serial number is the physical anchor, and dropping the row would leave a machine on site producing orders with nothing behind it.
+//
+// Corresponds with DELETE /api/v1/devices/{deviceId} (the `DeleteDevice` operationId).
+func (c *Client) DeleteDevice(ctx context.Context, deviceId DeviceId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteDeviceRequest(c.Server, deviceId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetDevice Read one device
+//
+// Corresponds with GET /api/v1/devices/{deviceId} (the `GetDevice` operationId).
+func (c *Client) GetDevice(ctx context.Context, deviceId DeviceId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetDeviceRequest(c.Server, deviceId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateDeviceWithBody Update name, model, group or lifecycle
+//
+// The serial number and the bound credential are not writable: they are facts reported by the machine. Rebinding is `POST /devices/{deviceId}/reset-binding` and must be done by a person.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /api/v1/devices/{deviceId} (the `UpdateDevice` operationId).
+func (c *Client) UpdateDeviceWithBody(ctx context.Context, deviceId DeviceId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateDeviceRequestWithBody(c.Server, deviceId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateDevice Update name, model, group or lifecycle
+//
+// The serial number and the bound credential are not writable: they are facts reported by the machine. Rebinding is `POST /devices/{deviceId}/reset-binding` and must be done by a person.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /api/v1/devices/{deviceId} (the `UpdateDevice` operationId).
+func (c *Client) UpdateDevice(ctx context.Context, deviceId DeviceId, body UpdateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateDeviceRequest(c.Server, deviceId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ResetDeviceBinding Release the binding so the machine can claim the number again
+//
+// Clears the serial number and the credential and returns the device to the
+// unbound state; the next claim mints a fresh credential. The old one stops
+// working at once.
+//
+// This is the only way to re-issue a credential, so it is its own permission
+// point and it is recorded: who released it and when.
+//
+// Corresponds with POST /api/v1/devices/{deviceId}/reset-binding (the `ResetDeviceBinding` operationId).
+func (c *Client) ResetDeviceBinding(ctx context.Context, deviceId DeviceId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResetDeviceBindingRequest(c.Server, deviceId)
 	if err != nil {
 		return nil, err
 	}
@@ -2164,6 +2622,375 @@ func NewChangeOwnPasswordRequestWithBody(server string, contentType string, body
 	return req, nil
 }
 
+// NewBindDeviceRequest constructs an http.Request for the BindDevice method
+func NewBindDeviceRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/device-api/bind")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPingDeviceRequest constructs an http.Request for the PingDevice method
+func NewPingDeviceRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/device-api/ping")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListDevicesRequest constructs an http.Request for the ListDevices method
+func NewListDevicesRequest(server string, params *ListDevicesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/devices")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.GroupCode != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "groupCode", *params.GroupCode, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.WithDescendants != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "withDescendants", *params.WithDescendants, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Keyword != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "keyword", *params.Keyword, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Lifecycle != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "lifecycle", *params.Lifecycle, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Bound != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "bound", *params.Bound, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateDeviceRequest calls the generic CreateDevice builder with application/json body
+func NewCreateDeviceRequest(server string, body CreateDeviceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateDeviceRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateDeviceRequestWithBody constructs an http.Request for the CreateDevice method, with any body, and a specified content type
+func NewCreateDeviceRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/devices")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteDeviceRequest constructs an http.Request for the DeleteDevice method
+func NewDeleteDeviceRequest(server string, deviceId DeviceId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "deviceId", deviceId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/devices/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetDeviceRequest constructs an http.Request for the GetDevice method
+func NewGetDeviceRequest(server string, deviceId DeviceId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "deviceId", deviceId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/devices/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateDeviceRequest calls the generic UpdateDevice builder with application/json body
+func NewUpdateDeviceRequest(server string, deviceId DeviceId, body UpdateDeviceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateDeviceRequestWithBody(server, deviceId, "application/json", bodyReader)
+}
+
+// NewUpdateDeviceRequestWithBody constructs an http.Request for the UpdateDevice method, with any body, and a specified content type
+func NewUpdateDeviceRequestWithBody(server string, deviceId DeviceId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "deviceId", deviceId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/devices/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewResetDeviceBindingRequest constructs an http.Request for the ResetDeviceBinding method
+func NewResetDeviceBindingRequest(server string, deviceId DeviceId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "deviceId", deviceId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/devices/%s/reset-binding", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewCreateGroupRequest calls the generic CreateGroup builder with application/json body
 func NewCreateGroupRequest(server string, body CreateGroupJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -2827,6 +3654,117 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /api/v1/auth/me/password (the `ChangeOwnPassword` operationId).
 	ChangeOwnPasswordWithResponse(ctx context.Context, body ChangeOwnPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeOwnPasswordResponse, error)
+
+	// BindDeviceWithResponse Claim a device number, once, and receive its credential
+	//
+	// The first thing a machine does after an operator types its number in. The
+	// envelope is encrypted with the program key that ships inside the device
+	// application, and carries the hardware serial number the machine read from
+	// itself.
+	//
+	// Answers 409 `DEVICE_ALREADY_BOUND` when the number has been claimed before -
+	// including when the same machine, with the same serial number, asks again.
+	// There is deliberately no self-service path back: a machine that reflashed its
+	// storage needs an operator to release the binding.
+	//
+	// No timestamp is validated here. A machine that has just been powered on for
+	// the first time usually has no correct clock, and refusing it would leave it
+	// with no way to ever get one.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/device-api/bind (the `BindDevice` operationId).
+	BindDeviceWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*BindDeviceResponse, error)
+
+	// PingDeviceWithResponse Prove that a bound device can authenticate
+	//
+	// A read-only call signed with the credential the device received when it bound. It exists so the binding can be verified end to end before any business endpoint depends on it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/device-api/ping (the `PingDevice` operationId).
+	PingDeviceWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*PingDeviceResponse, error)
+
+	// ListDevicesWithResponse List devices inside the visible subtree
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/devices (the `ListDevices` operationId).
+	ListDevicesWithResponse(ctx context.Context, params *ListDevicesParams, reqEditors ...RequestEditorFn) (*ListDevicesResponse, error)
+
+	// CreateDeviceWithBodyWithResponse Create a device record
+	//
+	// The device number is generated by the server - `YYYYMMDD` plus a sequence
+	// number, four digits wide, widened for the day that needs a fifth - and it is
+	// never accepted from the caller. No credential is created here: one is minted
+	// when the device claims the number, which is the moment the machine identifies
+	// itself with a serial number.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/devices (the `CreateDevice` operationId).
+	CreateDeviceWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateDeviceResponse, error)
+
+	// CreateDeviceWithResponse Create a device record
+	//
+	// The device number is generated by the server - `YYYYMMDD` plus a sequence
+	// number, four digits wide, widened for the day that needs a fifth - and it is
+	// never accepted from the caller. No credential is created here: one is minted
+	// when the device claims the number, which is the moment the machine identifies
+	// itself with a serial number.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/devices (the `CreateDevice` operationId).
+	CreateDeviceWithResponse(ctx context.Context, body CreateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateDeviceResponse, error)
+
+	// DeleteDeviceWithResponse Delete a device that has never been bound
+	//
+	// A bound device cannot be deleted, only retired: its serial number is the physical anchor, and dropping the row would leave a machine on site producing orders with nothing behind it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /api/v1/devices/{deviceId} (the `DeleteDevice` operationId).
+	DeleteDeviceWithResponse(ctx context.Context, deviceId DeviceId, reqEditors ...RequestEditorFn) (*DeleteDeviceResponse, error)
+
+	// GetDeviceWithResponse Read one device
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/devices/{deviceId} (the `GetDevice` operationId).
+	GetDeviceWithResponse(ctx context.Context, deviceId DeviceId, reqEditors ...RequestEditorFn) (*GetDeviceResponse, error)
+
+	// UpdateDeviceWithBodyWithResponse Update name, model, group or lifecycle
+	//
+	// The serial number and the bound credential are not writable: they are facts reported by the machine. Rebinding is `POST /devices/{deviceId}/reset-binding` and must be done by a person.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/v1/devices/{deviceId} (the `UpdateDevice` operationId).
+	UpdateDeviceWithBodyWithResponse(ctx context.Context, deviceId DeviceId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateDeviceResponse, error)
+
+	// UpdateDeviceWithResponse Update name, model, group or lifecycle
+	//
+	// The serial number and the bound credential are not writable: they are facts reported by the machine. Rebinding is `POST /devices/{deviceId}/reset-binding` and must be done by a person.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/v1/devices/{deviceId} (the `UpdateDevice` operationId).
+	UpdateDeviceWithResponse(ctx context.Context, deviceId DeviceId, body UpdateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateDeviceResponse, error)
+
+	// ResetDeviceBindingWithResponse Release the binding so the machine can claim the number again
+	//
+	// Clears the serial number and the credential and returns the device to the
+	// unbound state; the next claim mints a fresh credential. The old one stops
+	// working at once.
+	//
+	// This is the only way to re-issue a credential, so it is its own permission
+	// point and it is recorded: who released it and when.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/devices/{deviceId}/reset-binding (the `ResetDeviceBinding` operationId).
+	ResetDeviceBindingWithResponse(ctx context.Context, deviceId DeviceId, reqEditors ...RequestEditorFn) (*ResetDeviceBindingResponse, error)
 
 	// CreateGroupWithBodyWithResponse Create a child group
 	//
@@ -3495,6 +4433,390 @@ func (r ChangeOwnPasswordResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ChangeOwnPasswordResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type BindDeviceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *BindDeviceEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r BindDeviceResponse) GetJSON200() *BindDeviceEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r BindDeviceResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r BindDeviceResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r BindDeviceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r BindDeviceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r BindDeviceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PingDeviceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *DevicePingEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PingDeviceResponse) GetJSON200() *DevicePingEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PingDeviceResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PingDeviceResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PingDeviceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PingDeviceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PingDeviceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListDevicesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *DevicePageEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListDevicesResponse) GetJSON200() *DevicePageEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListDevicesResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListDevicesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListDevicesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListDevicesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListDevicesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateDeviceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *DeviceEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateDeviceResponse) GetJSON201() *DeviceEnvelope {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreateDeviceResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateDeviceResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateDeviceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateDeviceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateDeviceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteDeviceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *EmptyEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DeleteDeviceResponse) GetJSON200() *EmptyEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteDeviceResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteDeviceResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteDeviceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteDeviceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteDeviceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetDeviceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *DeviceEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetDeviceResponse) GetJSON200() *DeviceEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetDeviceResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetDeviceResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetDeviceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetDeviceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetDeviceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateDeviceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *DeviceEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateDeviceResponse) GetJSON200() *DeviceEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r UpdateDeviceResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateDeviceResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateDeviceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateDeviceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateDeviceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ResetDeviceBindingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *DeviceEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ResetDeviceBindingResponse) GetJSON200() *DeviceEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ResetDeviceBindingResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ResetDeviceBindingResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ResetDeviceBindingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResetDeviceBindingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ResetDeviceBindingResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -4348,6 +5670,177 @@ func (c *ClientWithResponses) ChangeOwnPasswordWithResponse(ctx context.Context,
 	return ParseChangeOwnPasswordResponse(rsp)
 }
 
+// BindDeviceWithResponse Claim a device number, once, and receive its credential
+//
+// The first thing a machine does after an operator types its number in. The
+// envelope is encrypted with the program key that ships inside the device
+// application, and carries the hardware serial number the machine read from
+// itself.
+//
+// Answers 409 `DEVICE_ALREADY_BOUND` when the number has been claimed before -
+// including when the same machine, with the same serial number, asks again.
+// There is deliberately no self-service path back: a machine that reflashed its
+// storage needs an operator to release the binding.
+//
+// No timestamp is validated here. A machine that has just been powered on for
+// the first time usually has no correct clock, and refusing it would leave it
+// with no way to ever get one.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/device-api/bind (the `BindDevice` operationId).
+func (c *ClientWithResponses) BindDeviceWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*BindDeviceResponse, error) {
+	rsp, err := c.BindDevice(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseBindDeviceResponse(rsp)
+}
+
+// PingDeviceWithResponse Prove that a bound device can authenticate
+//
+// A read-only call signed with the credential the device received when it bound. It exists so the binding can be verified end to end before any business endpoint depends on it.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/device-api/ping (the `PingDevice` operationId).
+func (c *ClientWithResponses) PingDeviceWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*PingDeviceResponse, error) {
+	rsp, err := c.PingDevice(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePingDeviceResponse(rsp)
+}
+
+// ListDevicesWithResponse List devices inside the visible subtree
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/devices (the `ListDevices` operationId).
+func (c *ClientWithResponses) ListDevicesWithResponse(ctx context.Context, params *ListDevicesParams, reqEditors ...RequestEditorFn) (*ListDevicesResponse, error) {
+	rsp, err := c.ListDevices(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListDevicesResponse(rsp)
+}
+
+// CreateDeviceWithBodyWithResponse Create a device record
+//
+// The device number is generated by the server - `YYYYMMDD` plus a sequence
+// number, four digits wide, widened for the day that needs a fifth - and it is
+// never accepted from the caller. No credential is created here: one is minted
+// when the device claims the number, which is the moment the machine identifies
+// itself with a serial number.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/devices (the `CreateDevice` operationId).
+func (c *ClientWithResponses) CreateDeviceWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateDeviceResponse, error) {
+	rsp, err := c.CreateDeviceWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateDeviceResponse(rsp)
+}
+
+// CreateDeviceWithResponse Create a device record
+//
+// The device number is generated by the server - `YYYYMMDD` plus a sequence
+// number, four digits wide, widened for the day that needs a fifth - and it is
+// never accepted from the caller. No credential is created here: one is minted
+// when the device claims the number, which is the moment the machine identifies
+// itself with a serial number.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/devices (the `CreateDevice` operationId).
+func (c *ClientWithResponses) CreateDeviceWithResponse(ctx context.Context, body CreateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateDeviceResponse, error) {
+	rsp, err := c.CreateDevice(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateDeviceResponse(rsp)
+}
+
+// DeleteDeviceWithResponse Delete a device that has never been bound
+//
+// A bound device cannot be deleted, only retired: its serial number is the physical anchor, and dropping the row would leave a machine on site producing orders with nothing behind it.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /api/v1/devices/{deviceId} (the `DeleteDevice` operationId).
+func (c *ClientWithResponses) DeleteDeviceWithResponse(ctx context.Context, deviceId DeviceId, reqEditors ...RequestEditorFn) (*DeleteDeviceResponse, error) {
+	rsp, err := c.DeleteDevice(ctx, deviceId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteDeviceResponse(rsp)
+}
+
+// GetDeviceWithResponse Read one device
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/devices/{deviceId} (the `GetDevice` operationId).
+func (c *ClientWithResponses) GetDeviceWithResponse(ctx context.Context, deviceId DeviceId, reqEditors ...RequestEditorFn) (*GetDeviceResponse, error) {
+	rsp, err := c.GetDevice(ctx, deviceId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetDeviceResponse(rsp)
+}
+
+// UpdateDeviceWithBodyWithResponse Update name, model, group or lifecycle
+//
+// The serial number and the bound credential are not writable: they are facts reported by the machine. Rebinding is `POST /devices/{deviceId}/reset-binding` and must be done by a person.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/v1/devices/{deviceId} (the `UpdateDevice` operationId).
+func (c *ClientWithResponses) UpdateDeviceWithBodyWithResponse(ctx context.Context, deviceId DeviceId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateDeviceResponse, error) {
+	rsp, err := c.UpdateDeviceWithBody(ctx, deviceId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateDeviceResponse(rsp)
+}
+
+// UpdateDeviceWithResponse Update name, model, group or lifecycle
+//
+// The serial number and the bound credential are not writable: they are facts reported by the machine. Rebinding is `POST /devices/{deviceId}/reset-binding` and must be done by a person.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/v1/devices/{deviceId} (the `UpdateDevice` operationId).
+func (c *ClientWithResponses) UpdateDeviceWithResponse(ctx context.Context, deviceId DeviceId, body UpdateDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateDeviceResponse, error) {
+	rsp, err := c.UpdateDevice(ctx, deviceId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateDeviceResponse(rsp)
+}
+
+// ResetDeviceBindingWithResponse Release the binding so the machine can claim the number again
+//
+// Clears the serial number and the credential and returns the device to the
+// unbound state; the next claim mints a fresh credential. The old one stops
+// working at once.
+//
+// This is the only way to re-issue a credential, so it is its own permission
+// point and it is recorded: who released it and when.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/devices/{deviceId}/reset-binding (the `ResetDeviceBinding` operationId).
+func (c *ClientWithResponses) ResetDeviceBindingWithResponse(ctx context.Context, deviceId DeviceId, reqEditors ...RequestEditorFn) (*ResetDeviceBindingResponse, error) {
+	rsp, err := c.ResetDeviceBinding(ctx, deviceId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResetDeviceBindingResponse(rsp)
+}
+
 // CreateGroupWithBodyWithResponse Create a child group
 //
 // When `code` is omitted the server allocates the next free three-digit slot under the parent. Deleted siblings keep their code, so numbers are never reused.
@@ -4978,6 +6471,270 @@ func ParseChangeOwnPasswordResponse(rsp *http.Response) (*ChangeOwnPasswordRespo
 	return response, nil
 }
 
+// ParseBindDeviceResponse parses an HTTP response from a BindDeviceWithResponse call
+func ParseBindDeviceResponse(rsp *http.Response) (*BindDeviceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &BindDeviceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BindDeviceEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePingDeviceResponse parses an HTTP response from a PingDeviceWithResponse call
+func ParsePingDeviceResponse(rsp *http.Response) (*PingDeviceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PingDeviceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DevicePingEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListDevicesResponse parses an HTTP response from a ListDevicesWithResponse call
+func ParseListDevicesResponse(rsp *http.Response) (*ListDevicesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListDevicesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DevicePageEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateDeviceResponse parses an HTTP response from a CreateDeviceWithResponse call
+func ParseCreateDeviceResponse(rsp *http.Response) (*CreateDeviceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateDeviceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest DeviceEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteDeviceResponse parses an HTTP response from a DeleteDeviceWithResponse call
+func ParseDeleteDeviceResponse(rsp *http.Response) (*DeleteDeviceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteDeviceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EmptyEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetDeviceResponse parses an HTTP response from a GetDeviceWithResponse call
+func ParseGetDeviceResponse(rsp *http.Response) (*GetDeviceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetDeviceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DeviceEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateDeviceResponse parses an HTTP response from a UpdateDeviceWithResponse call
+func ParseUpdateDeviceResponse(rsp *http.Response) (*UpdateDeviceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateDeviceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DeviceEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseResetDeviceBindingResponse parses an HTTP response from a ResetDeviceBindingWithResponse call
+func ParseResetDeviceBindingResponse(rsp *http.Response) (*ResetDeviceBindingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResetDeviceBindingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DeviceEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseCreateGroupResponse parses an HTTP response from a CreateGroupWithResponse call
 func ParseCreateGroupResponse(rsp *http.Response) (*CreateGroupResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -5406,6 +7163,30 @@ type ServerInterface interface {
 	// ChangeOwnPassword Change the caller's own password
 	// (PUT /api/v1/auth/me/password)
 	ChangeOwnPassword(w http.ResponseWriter, r *http.Request)
+	// BindDevice Claim a device number, once, and receive its credential
+	// (POST /api/v1/device-api/bind)
+	BindDevice(w http.ResponseWriter, r *http.Request)
+	// PingDevice Prove that a bound device can authenticate
+	// (GET /api/v1/device-api/ping)
+	PingDevice(w http.ResponseWriter, r *http.Request)
+	// ListDevices List devices inside the visible subtree
+	// (GET /api/v1/devices)
+	ListDevices(w http.ResponseWriter, r *http.Request, params ListDevicesParams)
+	// CreateDevice Create a device record
+	// (POST /api/v1/devices)
+	CreateDevice(w http.ResponseWriter, r *http.Request)
+	// DeleteDevice Delete a device that has never been bound
+	// (DELETE /api/v1/devices/{deviceId})
+	DeleteDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
+	// GetDevice Read one device
+	// (GET /api/v1/devices/{deviceId})
+	GetDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
+	// UpdateDevice Update name, model, group or lifecycle
+	// (PATCH /api/v1/devices/{deviceId})
+	UpdateDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
+	// ResetDeviceBinding Release the binding so the machine can claim the number again
+	// (POST /api/v1/devices/{deviceId}/reset-binding)
+	ResetDeviceBinding(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
 	// CreateGroup Create a child group
 	// (POST /api/v1/groups)
 	CreateGroup(w http.ResponseWriter, r *http.Request)
@@ -5505,6 +7286,54 @@ func (_ Unimplemented) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 // ChangeOwnPassword Change the caller's own password
 // (PUT /api/v1/auth/me/password)
 func (_ Unimplemented) ChangeOwnPassword(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// BindDevice Claim a device number, once, and receive its credential
+// (POST /api/v1/device-api/bind)
+func (_ Unimplemented) BindDevice(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// PingDevice Prove that a bound device can authenticate
+// (GET /api/v1/device-api/ping)
+func (_ Unimplemented) PingDevice(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListDevices List devices inside the visible subtree
+// (GET /api/v1/devices)
+func (_ Unimplemented) ListDevices(w http.ResponseWriter, r *http.Request, params ListDevicesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateDevice Create a device record
+// (POST /api/v1/devices)
+func (_ Unimplemented) CreateDevice(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteDevice Delete a device that has never been bound
+// (DELETE /api/v1/devices/{deviceId})
+func (_ Unimplemented) DeleteDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetDevice Read one device
+// (GET /api/v1/devices/{deviceId})
+func (_ Unimplemented) GetDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateDevice Update name, model, group or lifecycle
+// (PATCH /api/v1/devices/{deviceId})
+func (_ Unimplemented) UpdateDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ResetDeviceBinding Release the binding so the machine can claim the number again
+// (POST /api/v1/devices/{deviceId}/reset-binding)
+func (_ Unimplemented) ResetDeviceBinding(w http.ResponseWriter, r *http.Request, deviceId DeviceId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5852,6 +7681,263 @@ func (siw *ServerInterfaceWrapper) ChangeOwnPassword(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ChangeOwnPassword(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// BindDevice operation middleware
+func (siw *ServerInterfaceWrapper) BindDevice(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BindDevice(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PingDevice operation middleware
+func (siw *ServerInterfaceWrapper) PingDevice(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PingDevice(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDevices operation middleware
+func (siw *ServerInterfaceWrapper) ListDevices(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDevicesParams
+
+	// ------------- Optional query parameter "groupCode" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "groupCode", r.URL.Query(), &params.GroupCode, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "groupCode"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "groupCode", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "withDescendants" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "withDescendants", r.URL.Query(), &params.WithDescendants, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "withDescendants"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "withDescendants", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "keyword" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "keyword", r.URL.Query(), &params.Keyword, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "keyword"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "keyword", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "lifecycle" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "lifecycle", r.URL.Query(), &params.Lifecycle, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "lifecycle"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "lifecycle", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "bound" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "bound", r.URL.Query(), &params.Bound, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "bound"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bound", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDevices(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateDevice operation middleware
+func (siw *ServerInterfaceWrapper) CreateDevice(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateDevice(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteDevice operation middleware
+func (siw *ServerInterfaceWrapper) DeleteDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId DeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", chi.URLParam(r, "deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteDevice(w, r, deviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDevice operation middleware
+func (siw *ServerInterfaceWrapper) GetDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId DeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", chi.URLParam(r, "deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDevice(w, r, deviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateDevice operation middleware
+func (siw *ServerInterfaceWrapper) UpdateDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId DeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", chi.URLParam(r, "deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateDevice(w, r, deviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResetDeviceBinding operation middleware
+func (siw *ServerInterfaceWrapper) ResetDeviceBinding(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId DeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", chi.URLParam(r, "deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResetDeviceBinding(w, r, deviceId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6276,6 +8362,30 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/accounts/{accountId}/roles", wrapper.SetAccountRoles)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/devices", wrapper.ListDevices)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/devices", wrapper.CreateDevice)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/devices/{deviceId}", wrapper.DeleteDevice)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/devices/{deviceId}", wrapper.GetDevice)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/devices/{deviceId}", wrapper.UpdateDevice)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/devices/{deviceId}/reset-binding", wrapper.ResetDeviceBinding)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/device-api/bind", wrapper.BindDevice)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/device-api/ping", wrapper.PingDevice)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/permissions", wrapper.ListPermissions)
