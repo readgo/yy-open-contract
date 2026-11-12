@@ -396,7 +396,7 @@ type ResetPasswordRequest struct {
 
 // Role defines model for Role.
 type Role struct {
-	// Builtin Shipped by the installation rather than created by a person. Its code cannot change and it cannot be deleted, but what it grants can - that is how the two default roles stay useful.
+	// Builtin Shipped by the installation rather than written by a person. Its code and name cannot change and it cannot be deleted, but what it grants can - that is how the two default roles stay useful.
 	Builtin     bool      `json:"builtin"`
 	Code        string    `json:"code"`
 	CreatedAt   time.Time `json:"createdAt"`
@@ -408,14 +408,17 @@ type Role struct {
 	Id        openapi_types.UUID  `json:"id"`
 
 	// MemberCount Accounts currently holding this role, deleted ones excluded.
-	MemberCount int      `json:"memberCount"`
+	MemberCount int `json:"memberCount"`
+
+	// Name The stored name. For a built-in role this is an English seed: clients resolve the text they display from `builtin` and `code`.
 	Name        string   `json:"name"`
 	Permissions []string `json:"permissions"`
 
-	// Scope SYSTEM roles belong to the root group. They are visible to every account in
-	// the installation, and only an administrator of the root group may change
-	// them. GROUP roles belong to one group, are visible inside its subtree, and
-	// exist for as long as that group does.
+	// Scope Where the role can be used. SYSTEM means built into the installation: every
+	// group sees it and may assign it, only an administrator of the root group may
+	// change what it grants, and its name is resolved by the client in the reader's
+	// language rather than taken from the `name` field. GROUP means one group wrote
+	// it, and it is usable nowhere else - not by its children and not by the root.
 	Scope     RoleScope `json:"scope"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -440,21 +443,27 @@ type RoleListEnvelope struct {
 
 // RoleRef A role as it appears on an account. Deliberately not the whole role: an account list would otherwise carry every permission of every role on every row.
 type RoleRef struct {
-	Code string             `json:"code"`
-	Id   openapi_types.UUID `json:"id"`
-	Name string             `json:"name"`
+	// Builtin Shipped by the installation rather than written by a person. Its code and name cannot change and it cannot be deleted, but what it grants can - that is how the two default roles stay useful.
+	Builtin bool               `json:"builtin"`
+	Code    string             `json:"code"`
+	Id      openapi_types.UUID `json:"id"`
 
-	// Scope SYSTEM roles belong to the root group. They are visible to every account in
-	// the installation, and only an administrator of the root group may change
-	// them. GROUP roles belong to one group, are visible inside its subtree, and
-	// exist for as long as that group does.
+	// Name The stored name. For a built-in role this is an English seed: clients resolve the text they display from `builtin` and `code`.
+	Name string `json:"name"`
+
+	// Scope Where the role can be used. SYSTEM means built into the installation: every
+	// group sees it and may assign it, only an administrator of the root group may
+	// change what it grants, and its name is resolved by the client in the reader's
+	// language rather than taken from the `name` field. GROUP means one group wrote
+	// it, and it is usable nowhere else - not by its children and not by the root.
 	Scope RoleScope `json:"scope"`
 }
 
-// RoleScope SYSTEM roles belong to the root group. They are visible to every account in
-// the installation, and only an administrator of the root group may change
-// them. GROUP roles belong to one group, are visible inside its subtree, and
-// exist for as long as that group does.
+// RoleScope Where the role can be used. SYSTEM means built into the installation: every
+// group sees it and may assign it, only an administrator of the root group may
+// change what it grants, and its name is resolved by the client in the reader's
+// language rather than taken from the `name` field. GROUP means one group wrote
+// it, and it is usable nowhere else - not by its children and not by the root.
 type RoleScope string
 
 // SetAccountRolesRequest defines model for SetAccountRolesRequest.
@@ -709,7 +718,7 @@ type ClientInterface interface {
 	// profile, and nothing else.
 	//
 	// Two rules reject the call. The caller may only hand out roles it can see
-	// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+	// and only permissions it holds itself (`PERMISSION_EXCEEDED`). And the
 	// change may not leave the installation without an account that can
 	// administer roles (`ACCOUNT_LAST_ADMIN`).
 	//
@@ -725,7 +734,7 @@ type ClientInterface interface {
 	// profile, and nothing else.
 	//
 	// Two rules reject the call. The caller may only hand out roles it can see
-	// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+	// and only permissions it holds itself (`PERMISSION_EXCEEDED`). And the
 	// change may not leave the installation without an account that can
 	// administer roles (`ACCOUNT_LAST_ADMIN`).
 	//
@@ -945,32 +954,40 @@ type ClientInterface interface {
 	// Corresponds with DELETE /api/v1/roles/{roleId} (the `DeleteRole` operationId).
 	DeleteRole(ctx context.Context, roleId RoleId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// UpdateRoleWithBody Rename a role or change what it grants
+	// UpdateRoleWithBody Rename a group role or change what a role grants
 	//
 	// The code is immutable: it is what a role is referred to by in logs and
-	// support conversations. Renaming and re-granting are allowed at any time and
-	// take effect on the holder's next request, because authorisation is
-	// resolved per request rather than stored in the token.
+	// support conversations. Re-granting is allowed at any time and takes effect on
+	// the holder's next request, because authorisation is resolved per request
+	// rather than stored in the token.
 	//
-	// A built-in role cannot be deleted, and removing a permission a holder
-	// relies on takes effect immediately - which is why a change that would leave
-	// nobody able to administer roles is rejected.
+	// A role written by a group is editable only inside that group. A built-in role
+	// is editable only at the root, and only what it grants: its name is resolved by
+	// the client in the reader's language, so sending a different one is rejected
+	// with `ROLE_BUILTIN_PROTECTED` rather than accepted and ignored.
+	//
+	// Removing a permission a holder relies on takes effect immediately - which is
+	// why a change that would leave nobody able to administer roles is rejected.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PATCH /api/v1/roles/{roleId} (the `UpdateRole` operationId).
 	UpdateRoleWithBody(ctx context.Context, roleId RoleId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// UpdateRole Rename a role or change what it grants
+	// UpdateRole Rename a group role or change what a role grants
 	//
 	// The code is immutable: it is what a role is referred to by in logs and
-	// support conversations. Renaming and re-granting are allowed at any time and
-	// take effect on the holder's next request, because authorisation is
-	// resolved per request rather than stored in the token.
+	// support conversations. Re-granting is allowed at any time and takes effect on
+	// the holder's next request, because authorisation is resolved per request
+	// rather than stored in the token.
 	//
-	// A built-in role cannot be deleted, and removing a permission a holder
-	// relies on takes effect immediately - which is why a change that would leave
-	// nobody able to administer roles is rejected.
+	// A role written by a group is editable only inside that group. A built-in role
+	// is editable only at the root, and only what it grants: its name is resolved by
+	// the client in the reader's language, so sending a different one is rejected
+	// with `ROLE_BUILTIN_PROTECTED` rather than accepted and ignored.
+	//
+	// Removing a permission a holder relies on takes effect immediately - which is
+	// why a change that would leave nobody able to administer roles is rejected.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -1125,7 +1142,7 @@ func (c *Client) ResetAccountPassword(ctx context.Context, accountId AccountId, 
 // profile, and nothing else.
 //
 // Two rules reject the call. The caller may only hand out roles it can see
-// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+// and only permissions it holds itself (`PERMISSION_EXCEEDED`). And the
 // change may not leave the installation without an account that can
 // administer roles (`ACCOUNT_LAST_ADMIN`).
 //
@@ -1151,7 +1168,7 @@ func (c *Client) SetAccountRolesWithBody(ctx context.Context, accountId AccountI
 // profile, and nothing else.
 //
 // Two rules reject the call. The caller may only hand out roles it can see
-// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+// and only permissions it holds itself (`PERMISSION_EXCEEDED`). And the
 // change may not leave the installation without an account that can
 // administer roles (`ACCOUNT_LAST_ADMIN`).
 //
@@ -1611,16 +1628,20 @@ func (c *Client) DeleteRole(ctx context.Context, roleId RoleId, reqEditors ...Re
 	return c.Client.Do(req)
 }
 
-// UpdateRoleWithBody Rename a role or change what it grants
+// UpdateRoleWithBody Rename a group role or change what a role grants
 //
 // The code is immutable: it is what a role is referred to by in logs and
-// support conversations. Renaming and re-granting are allowed at any time and
-// take effect on the holder's next request, because authorisation is
-// resolved per request rather than stored in the token.
+// support conversations. Re-granting is allowed at any time and takes effect on
+// the holder's next request, because authorisation is resolved per request
+// rather than stored in the token.
 //
-// A built-in role cannot be deleted, and removing a permission a holder
-// relies on takes effect immediately - which is why a change that would leave
-// nobody able to administer roles is rejected.
+// A role written by a group is editable only inside that group. A built-in role
+// is editable only at the root, and only what it grants: its name is resolved by
+// the client in the reader's language, so sending a different one is rejected
+// with `ROLE_BUILTIN_PROTECTED` rather than accepted and ignored.
+//
+// Removing a permission a holder relies on takes effect immediately - which is
+// why a change that would leave nobody able to administer roles is rejected.
 //
 // Takes any type of body and a specified content type.
 //
@@ -1637,16 +1658,20 @@ func (c *Client) UpdateRoleWithBody(ctx context.Context, roleId RoleId, contentT
 	return c.Client.Do(req)
 }
 
-// UpdateRole Rename a role or change what it grants
+// UpdateRole Rename a group role or change what a role grants
 //
 // The code is immutable: it is what a role is referred to by in logs and
-// support conversations. Renaming and re-granting are allowed at any time and
-// take effect on the holder's next request, because authorisation is
-// resolved per request rather than stored in the token.
+// support conversations. Re-granting is allowed at any time and takes effect on
+// the holder's next request, because authorisation is resolved per request
+// rather than stored in the token.
 //
-// A built-in role cannot be deleted, and removing a permission a holder
-// relies on takes effect immediately - which is why a change that would leave
-// nobody able to administer roles is rejected.
+// A role written by a group is editable only inside that group. A built-in role
+// is editable only at the root, and only what it grants: its name is resolved by
+// the client in the reader's language, so sending a different one is rejected
+// with `ROLE_BUILTIN_PROTECTED` rather than accepted and ignored.
+//
+// Removing a permission a holder relies on takes effect immediately - which is
+// why a change that would leave nobody able to administer roles is rejected.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2705,7 +2730,7 @@ type ClientWithResponsesInterface interface {
 	// profile, and nothing else.
 	//
 	// Two rules reject the call. The caller may only hand out roles it can see
-	// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+	// and only permissions it holds itself (`PERMISSION_EXCEEDED`). And the
 	// change may not leave the installation without an account that can
 	// administer roles (`ACCOUNT_LAST_ADMIN`).
 	//
@@ -2721,7 +2746,7 @@ type ClientWithResponsesInterface interface {
 	// profile, and nothing else.
 	//
 	// Two rules reject the call. The caller may only hand out roles it can see
-	// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+	// and only permissions it holds itself (`PERMISSION_EXCEEDED`). And the
 	// change may not leave the installation without an account that can
 	// administer roles (`ACCOUNT_LAST_ADMIN`).
 	//
@@ -2955,32 +2980,40 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with DELETE /api/v1/roles/{roleId} (the `DeleteRole` operationId).
 	DeleteRoleWithResponse(ctx context.Context, roleId RoleId, reqEditors ...RequestEditorFn) (*DeleteRoleResponse, error)
 
-	// UpdateRoleWithBodyWithResponse Rename a role or change what it grants
+	// UpdateRoleWithBodyWithResponse Rename a group role or change what a role grants
 	//
 	// The code is immutable: it is what a role is referred to by in logs and
-	// support conversations. Renaming and re-granting are allowed at any time and
-	// take effect on the holder's next request, because authorisation is
-	// resolved per request rather than stored in the token.
+	// support conversations. Re-granting is allowed at any time and takes effect on
+	// the holder's next request, because authorisation is resolved per request
+	// rather than stored in the token.
 	//
-	// A built-in role cannot be deleted, and removing a permission a holder
-	// relies on takes effect immediately - which is why a change that would leave
-	// nobody able to administer roles is rejected.
+	// A role written by a group is editable only inside that group. A built-in role
+	// is editable only at the root, and only what it grants: its name is resolved by
+	// the client in the reader's language, so sending a different one is rejected
+	// with `ROLE_BUILTIN_PROTECTED` rather than accepted and ignored.
+	//
+	// Removing a permission a holder relies on takes effect immediately - which is
+	// why a change that would leave nobody able to administer roles is rejected.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PATCH /api/v1/roles/{roleId} (the `UpdateRole` operationId).
 	UpdateRoleWithBodyWithResponse(ctx context.Context, roleId RoleId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateRoleResponse, error)
 
-	// UpdateRoleWithResponse Rename a role or change what it grants
+	// UpdateRoleWithResponse Rename a group role or change what a role grants
 	//
 	// The code is immutable: it is what a role is referred to by in logs and
-	// support conversations. Renaming and re-granting are allowed at any time and
-	// take effect on the holder's next request, because authorisation is
-	// resolved per request rather than stored in the token.
+	// support conversations. Re-granting is allowed at any time and takes effect on
+	// the holder's next request, because authorisation is resolved per request
+	// rather than stored in the token.
 	//
-	// A built-in role cannot be deleted, and removing a permission a holder
-	// relies on takes effect immediately - which is why a change that would leave
-	// nobody able to administer roles is rejected.
+	// A role written by a group is editable only inside that group. A built-in role
+	// is editable only at the root, and only what it grants: its name is resolved by
+	// the client in the reader's language, so sending a different one is rejected
+	// with `ROLE_BUILTIN_PROTECTED` rather than accepted and ignored.
+	//
+	// Removing a permission a holder relies on takes effect immediately - which is
+	// why a change that would leave nobody able to administer roles is rejected.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -4163,7 +4196,7 @@ func (c *ClientWithResponses) ResetAccountPasswordWithResponse(ctx context.Conte
 // profile, and nothing else.
 //
 // Two rules reject the call. The caller may only hand out roles it can see
-// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+// and only permissions it holds itself (`PERMISSION_EXCEEDED`). And the
 // change may not leave the installation without an account that can
 // administer roles (`ACCOUNT_LAST_ADMIN`).
 //
@@ -4185,7 +4218,7 @@ func (c *ClientWithResponses) SetAccountRolesWithBodyWithResponse(ctx context.Co
 // profile, and nothing else.
 //
 // Two rules reject the call. The caller may only hand out roles it can see
-// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+// and only permissions it holds itself (`PERMISSION_EXCEEDED`). And the
 // change may not leave the installation without an account that can
 // administer roles (`ACCOUNT_LAST_ADMIN`).
 //
@@ -4563,16 +4596,20 @@ func (c *ClientWithResponses) DeleteRoleWithResponse(ctx context.Context, roleId
 	return ParseDeleteRoleResponse(rsp)
 }
 
-// UpdateRoleWithBodyWithResponse Rename a role or change what it grants
+// UpdateRoleWithBodyWithResponse Rename a group role or change what a role grants
 //
 // The code is immutable: it is what a role is referred to by in logs and
-// support conversations. Renaming and re-granting are allowed at any time and
-// take effect on the holder's next request, because authorisation is
-// resolved per request rather than stored in the token.
+// support conversations. Re-granting is allowed at any time and takes effect on
+// the holder's next request, because authorisation is resolved per request
+// rather than stored in the token.
 //
-// A built-in role cannot be deleted, and removing a permission a holder
-// relies on takes effect immediately - which is why a change that would leave
-// nobody able to administer roles is rejected.
+// A role written by a group is editable only inside that group. A built-in role
+// is editable only at the root, and only what it grants: its name is resolved by
+// the client in the reader's language, so sending a different one is rejected
+// with `ROLE_BUILTIN_PROTECTED` rather than accepted and ignored.
+//
+// Removing a permission a holder relies on takes effect immediately - which is
+// why a change that would leave nobody able to administer roles is rejected.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -4585,16 +4622,20 @@ func (c *ClientWithResponses) UpdateRoleWithBodyWithResponse(ctx context.Context
 	return ParseUpdateRoleResponse(rsp)
 }
 
-// UpdateRoleWithResponse Rename a role or change what it grants
+// UpdateRoleWithResponse Rename a group role or change what a role grants
 //
 // The code is immutable: it is what a role is referred to by in logs and
-// support conversations. Renaming and re-granting are allowed at any time and
-// take effect on the holder's next request, because authorisation is
-// resolved per request rather than stored in the token.
+// support conversations. Re-granting is allowed at any time and takes effect on
+// the holder's next request, because authorisation is resolved per request
+// rather than stored in the token.
 //
-// A built-in role cannot be deleted, and removing a permission a holder
-// relies on takes effect immediately - which is why a change that would leave
-// nobody able to administer roles is rejected.
+// A role written by a group is editable only inside that group. A built-in role
+// is editable only at the root, and only what it grants: its name is resolved by
+// the client in the reader's language, so sending a different one is rejected
+// with `ROLE_BUILTIN_PROTECTED` rather than accepted and ignored.
+//
+// Removing a permission a holder relies on takes effect immediately - which is
+// why a change that would leave nobody able to administer roles is rejected.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -5398,7 +5439,7 @@ type ServerInterface interface {
 	// DeleteRole Delete a role that nobody holds
 	// (DELETE /api/v1/roles/{roleId})
 	DeleteRole(w http.ResponseWriter, r *http.Request, roleId RoleId)
-	// UpdateRole Rename a role or change what it grants
+	// UpdateRole Rename a group role or change what a role grants
 	// (PATCH /api/v1/roles/{roleId})
 	UpdateRole(w http.ResponseWriter, r *http.Request, roleId RoleId)
 }
@@ -5533,7 +5574,7 @@ func (_ Unimplemented) DeleteRole(w http.ResponseWriter, r *http.Request, roleId
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// UpdateRole Rename a role or change what it grants
+// UpdateRole Rename a group role or change what a role grants
 // (PATCH /api/v1/roles/{roleId})
 func (_ Unimplemented) UpdateRole(w http.ResponseWriter, r *http.Request, roleId RoleId) {
 	w.WriteHeader(http.StatusNotImplemented)

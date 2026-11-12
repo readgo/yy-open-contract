@@ -19,11 +19,16 @@ info:
     list: a client should decide what to show from that list rather than from the
     role names, because a role's contents can change.
 
-    A fresh installation has two roles. `administrator` holds every permission and
-    `operator` holds only the `:read` points. Both belong to the root group, so
-    they are visible everywhere, and only an administrator of the root group can
-    change them. A group may define its own roles, which are visible inside that
-    group's subtree and changeable by the administrators of that group alone.
+    A fresh installation has two built-in roles. `administrator` holds every permission
+    and `operator` holds only the `:read` points. A built-in role is shared: every group
+    can see it and assign it, only an administrator of the root group can change what it
+    grants, and its name is not data - clients show it in the reader's language, so it
+    cannot be renamed.
+
+    A group may define its own roles, and those stay inside that group. They are visible
+    and assignable only where they were written: not by child groups, and not by the root
+    either. Widening a role's reach means changing what the built-in roles grant, which
+    is a decision the root group is accountable for.
 
     **Response envelope.** Every response carries `ok` and `traceId`. On success
     `data` holds the payload; on failure `error` holds `code`, `message` and
@@ -568,16 +573,20 @@ paths:
   /api/v1/roles/{roleId}:
     patch:
       operationId: updateRole
-      summary: Rename a role or change what it grants
+      summary: Rename a group role or change what a role grants
       description: |
         The code is immutable: it is what a role is referred to by in logs and
-        support conversations. Renaming and re-granting are allowed at any time and
-        take effect on the holder's next request, because authorisation is
-        resolved per request rather than stored in the token.
+        support conversations. Re-granting is allowed at any time and takes effect on
+        the holder's next request, because authorisation is resolved per request
+        rather than stored in the token.
 
-        A built-in role cannot be deleted, and removing a permission a holder
-        relies on takes effect immediately - which is why a change that would leave
-        nobody able to administer roles is rejected.
+        A role written by a group is editable only inside that group. A built-in role
+        is editable only at the root, and only what it grants: its name is resolved by
+        the client in the reader's language, so sending a different one is rejected
+        with `ROLE_BUILTIN_PROTECTED` rather than accepted and ignored.
+
+        Removing a permission a holder relies on takes effect immediately - which is
+        why a change that would leave nobody able to administer roles is rejected.
       tags: [roles]
       parameters:
         - $ref: '#/components/parameters/RoleId'
@@ -1025,10 +1034,11 @@ components:
       type: string
       enum: [SYSTEM, GROUP]
       description: |
-        SYSTEM roles belong to the root group. They are visible to every account in
-        the installation, and only an administrator of the root group may change
-        them. GROUP roles belong to one group, are visible inside its subtree, and
-        exist for as long as that group does.
+        Where the role can be used. SYSTEM means built into the installation: every
+        group sees it and may assign it, only an administrator of the root group may
+        change what it grants, and its name is resolved by the client in the reader's
+        language rather than taken from the `name` field. GROUP means one group wrote
+        it, and it is usable nowhere else - not by its children and not by the root.
 
     Permission:
       type: object
@@ -1068,7 +1078,7 @@ components:
         A role as it appears on an account. Deliberately not the whole role: an
         account list would otherwise carry every permission of every role on every
         row.
-      required: [id, code, name, scope]
+      required: [id, code, name, scope, builtin]
       properties:
         id:
           type: string
@@ -1077,14 +1087,23 @@ components:
           type: string
         name:
           type: string
+          description: >
+            The stored name. For a built-in role this is an English seed: clients
+            resolve the text they display from `builtin` and `code`.
         scope:
           $ref: '#/components/schemas/RoleScope'
+        builtin:
+          type: boolean
+          description: >
+            Shipped by the installation rather than written by a person. Its code and
+            name cannot change and it cannot be deleted, but what it grants can - that
+            is how the two default roles stay useful.
 
     Role:
       allOf:
         - $ref: '#/components/schemas/RoleRef'
         - type: object
-          required: [builtin, permissions, memberCount, createdAt, updatedAt]
+          required: [permissions, memberCount, createdAt, updatedAt]
           properties:
             groupId:
               type: string
@@ -1095,12 +1114,6 @@ components:
               nullable: true
             description:
               type: string
-            builtin:
-              type: boolean
-              description: >
-                Shipped by the installation rather than created by a person. Its
-                code cannot change and it cannot be deleted, but what it grants can
-                - that is how the two default roles stay useful.
             permissions:
               type: array
               items:
