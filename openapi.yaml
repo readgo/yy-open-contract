@@ -12,6 +12,19 @@ info:
     `AUTH_TOKEN_EXPIRED`; an invalid or revoked one answers 401 with
     `AUTH_TOKEN_INVALID`. Sign in again to obtain a new token.
 
+    **Authorisation.** A token says who the caller is, not what it may do. Every
+    account holds one or more roles, and a role grants a set of permission points
+    such as `account:create`. An endpoint the caller may not use answers 403 with
+    `PERMISSION_DENIED`. `GET /api/v1/auth/me` returns the caller's own permission
+    list: a client should decide what to show from that list rather than from the
+    role names, because a role's contents can change.
+
+    A fresh installation has two roles. `administrator` holds every permission and
+    `operator` holds only the `:read` points. Both belong to the root group, so
+    they are visible everywhere, and only an administrator of the root group can
+    change them. A group may define its own roles, which are visible inside that
+    group's subtree and changeable by the administrators of that group alone.
+
     **Response envelope.** Every response carries `ok` and `traceId`. On success
     `data` holds the payload; on failure `error` holds `code`, `message` and
     optional `details`.
@@ -43,8 +56,16 @@ tags:
       code itself carries the position under its parent.
   - name: accounts
     description: |
-      Operator accounts: status, password, display name and time zone.
-      Visibility follows the caller's own group and includes its descendants.
+      Operator accounts: status, password, display name, time zone and the roles
+      they hold. Visibility follows the caller's own group and includes its
+      descendants.
+  - name: roles
+    description: |
+      Roles and the permission points they grant. A role belongs to one group and
+      is visible inside that group's subtree, so the root group's roles are the
+      ones every account can be given. Nobody can create a role that grants more
+      than they hold themselves: that is the rule that stops a limited
+      administrator from promoting themselves.
 
 security:
   - bearerAuth: []
@@ -448,6 +469,153 @@ paths:
         default:
           $ref: '#/components/responses/ErrorResponse'
 
+  /api/v1/accounts/{accountId}/roles:
+    put:
+      operationId: setAccountRoles
+      summary: Replace the roles an account holds
+      description: |
+        A full replacement, not a delta: the body is the complete set. An empty
+        list is accepted and leaves the account able to sign in and change its own
+        profile, and nothing else.
+
+        Two rules reject the call. The caller may only hand out roles it can see
+        and only permissions it holds itself (`PERMISSION_EXCEEDED`). And the
+        change may not leave the installation without an account that can
+        administer roles (`ACCOUNT_LAST_ADMIN`).
+      tags: [accounts]
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetAccountRolesRequest'
+      responses:
+        '200':
+          description: Roles replaced
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/v1/permissions:
+    get:
+      operationId: listPermissions
+      summary: List every permission point this build enforces
+      description: >
+        The catalogue is what a role may grant, so a client renders its role editor
+        from this list rather than from a hard-coded one: a permission the server
+        does not enforce must not appear as a choice.
+      tags: [roles]
+      responses:
+        '200':
+          description: Permission catalogue
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PermissionListEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/v1/roles:
+    get:
+      operationId: listRoles
+      summary: List the roles the caller may see
+      description: >
+        The root group sees every role. Everyone else sees the roles of their own
+        group together with those of its ancestors, because a role defined higher
+        up the tree is one they can be given.
+      tags: [roles]
+      responses:
+        '200':
+          description: Roles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleListEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+    post:
+      operationId: createRole
+      summary: Create a role
+      description: |
+        `groupId` decides who the role belongs to. Omitted, it belongs to the
+        caller's own group - which for a root administrator means the root group,
+        and a role there is visible to the whole installation.
+
+        Only a root group administrator may create a role for another group, and
+        nobody may grant a permission they do not hold themselves.
+      tags: [roles]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoleRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/v1/roles/{roleId}:
+    patch:
+      operationId: updateRole
+      summary: Rename a role or change what it grants
+      description: |
+        The code is immutable: it is what a role is referred to by in logs and
+        support conversations. Renaming and re-granting are allowed at any time and
+        take effect on the holder's next request, because authorisation is
+        resolved per request rather than stored in the token.
+
+        A built-in role cannot be deleted, and removing a permission a holder
+        relies on takes effect immediately - which is why a change that would leave
+        nobody able to administer roles is rejected.
+      tags: [roles]
+      parameters:
+        - $ref: '#/components/parameters/RoleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+    delete:
+      operationId: deleteRole
+      summary: Delete a role that nobody holds
+      description: >
+        Rejected with `ROLE_IN_USE` while accounts still hold it, and with
+        `ROLE_BUILTIN_PROTECTED` for the two roles a fresh installation ships with:
+        deleting either would silently strip permissions from whoever holds it.
+      tags: [roles]
+      parameters:
+        - $ref: '#/components/parameters/RoleId'
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+
 components:
 
   securitySchemes:
@@ -474,6 +642,13 @@ components:
         format: uuid
     AccountId:
       name: accountId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RoleId:
+      name: roleId
       in: path
       required: true
       schema:
@@ -716,7 +891,7 @@ components:
     # --- accounts -------------------------------------------------------
     Account:
       type: object
-      required: [id, username, displayName, groupId, groupCode, groupName, status, timezone, createdAt, updatedAt]
+      required: [id, username, displayName, groupId, groupCode, groupName, status, timezone, roles, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -737,6 +912,13 @@ components:
         timezone:
           type: string
           description: IANA time zone name, e.g. Asia/Shanghai. Never a numeric offset.
+        roles:
+          type: array
+          description: >
+            Roles this account holds. An account with none can sign in and edit its
+            own profile, and do nothing else.
+          items:
+            $ref: '#/components/schemas/RoleRef'
         lastLoginAt:
           type: string
           format: date-time
@@ -804,6 +986,15 @@ components:
         timezone:
           type: string
           maxLength: 64
+        roleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: >
+            Roles to grant. Omitted means the built-in operator role: an account that
+            can sign in and do nothing else looks like a broken account, so "no roles
+            at all" is only reachable by assigning an empty list afterwards.
 
     UpdateAccountRequest:
       type: object
@@ -829,6 +1020,178 @@ components:
           minLength: 8
           maxLength: 128
 
+    # --- roles ----------------------------------------------------------
+    RoleScope:
+      type: string
+      enum: [SYSTEM, GROUP]
+      description: |
+        SYSTEM roles belong to the root group. They are visible to every account in
+        the installation, and only an administrator of the root group may change
+        them. GROUP roles belong to one group, are visible inside its subtree, and
+        exist for as long as that group does.
+
+    Permission:
+      type: object
+      required: [code, domain, description]
+      properties:
+        code:
+          type: string
+          description: >
+            Stable identifier such as `account:create`. Never localised: it is what
+            a client branches on and what the server enforces.
+        domain:
+          type: string
+          description: >
+            The area the point belongs to - `group`, `account` or `role`. Used to
+            group the checkboxes in a role editor; not an enum, so a new area does
+            not break an older client.
+        description:
+          type: string
+          description: >
+            English developer text describing the effect. A client that translates
+            `code` itself should prefer its own text and keep this as a fallback.
+
+    PermissionListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Permission'
+
+    RoleRef:
+      type: object
+      description: >
+        A role as it appears on an account. Deliberately not the whole role: an
+        account list would otherwise carry every permission of every role on every
+        row.
+      required: [id, code, name, scope]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        scope:
+          $ref: '#/components/schemas/RoleScope'
+
+    Role:
+      allOf:
+        - $ref: '#/components/schemas/RoleRef'
+        - type: object
+          required: [builtin, permissions, memberCount, createdAt, updatedAt]
+          properties:
+            groupId:
+              type: string
+              format: uuid
+              description: The owning group. For a SYSTEM role this is the root group.
+            groupName:
+              type: string
+              nullable: true
+            description:
+              type: string
+            builtin:
+              type: boolean
+              description: >
+                Shipped by the installation rather than created by a person. Its
+                code cannot change and it cannot be deleted, but what it grants can
+                - that is how the two default roles stay useful.
+            permissions:
+              type: array
+              items:
+                type: string
+            memberCount:
+              type: integer
+              description: Accounts currently holding this role, deleted ones excluded.
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+
+    RoleListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Role'
+
+    RoleEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/Role'
+
+    CreateRoleRequest:
+      type: object
+      required: [code, name, permissions]
+      properties:
+        code:
+          type: string
+          pattern: '^[a-z][a-z0-9-]{1,31}$'
+          description: Lowercase, start with a letter. Immutable once created.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        description:
+          type: string
+          maxLength: 200
+        groupId:
+          type: string
+          format: uuid
+          description: >
+            The owning group. Omit to use the caller's own group; only a root group
+            administrator may name a different one.
+        permissions:
+          type: array
+          items:
+            type: string
+          description: >
+            An empty list is allowed and grants nothing beyond the ability to sign
+            in. Every entry must be a point the caller holds itself.
+
+    UpdateRoleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        description:
+          type: string
+          nullable: true
+          maxLength: 200
+        permissions:
+          type: array
+          items:
+            type: string
+          description: Replaces the whole set when present.
+
+    SetAccountRolesRequest:
+      type: object
+      required: [roleIds]
+      properties:
+        roleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: The complete set. An empty list removes every role.
+
     # --- auth -----------------------------------------------------------
     LoginRequest:
       type: object
@@ -845,7 +1208,7 @@ components:
 
     CurrentUser:
       type: object
-      required: [id, username, displayName, groupId, groupCode, timezone]
+      required: [id, username, displayName, groupId, groupCode, timezone, roles, permissions]
       properties:
         id:
           type: string
@@ -861,6 +1224,19 @@ components:
           type: string
         timezone:
           type: string
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoleRef'
+        permissions:
+          type: array
+          description: >
+            Every point the caller currently holds, flattened across its roles. This
+            is what a client should gate its interface on: a role's name says
+            nothing about what it grants, and its contents can change between two
+            requests.
+          items:
+            type: string
 
     LoginResult:
       type: object

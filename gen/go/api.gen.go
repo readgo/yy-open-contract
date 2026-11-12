@@ -92,6 +92,24 @@ func (e LoginResultTokenType) Valid() bool {
 	}
 }
 
+// Defines values for RoleScope.
+const (
+	GROUP  RoleScope = "GROUP"
+	SYSTEM RoleScope = "SYSTEM"
+)
+
+// Valid indicates whether the value is a known member of the RoleScope enum.
+func (e RoleScope) Valid() bool {
+	switch e {
+	case GROUP:
+		return true
+	case SYSTEM:
+		return true
+	default:
+		return false
+	}
+}
+
 // Account defines model for Account.
 type Account struct {
 	CreatedAt   time.Time          `json:"createdAt"`
@@ -101,7 +119,10 @@ type Account struct {
 	GroupName   string             `json:"groupName"`
 	Id          openapi_types.UUID `json:"id"`
 	LastLoginAt *time.Time         `json:"lastLoginAt,omitempty"`
-	Status      AccountStatus      `json:"status"`
+
+	// Roles Roles this account holds. An account with none can sign in and edit its own profile, and do nothing else.
+	Roles  []RoleRef     `json:"roles"`
+	Status AccountStatus `json:"status"`
 
 	// Timezone IANA time zone name, e.g. Asia/Shanghai. Never a numeric offset.
 	Timezone  string    `json:"timezone"`
@@ -155,8 +176,11 @@ type CreateAccountRequest struct {
 	DisplayName *string            `json:"displayName,omitempty"`
 	GroupId     openapi_types.UUID `json:"groupId"`
 	Password    string             `json:"password"`
-	Timezone    *string            `json:"timezone,omitempty"`
-	Username    string             `json:"username"`
+
+	// RoleIds Roles to grant. Omitted means the built-in operator role: an account that can sign in and do nothing else looks like a broken account, so "no roles at all" is only reachable by assigning an empty list afterwards.
+	RoleIds  *[]openapi_types.UUID `json:"roleIds,omitempty"`
+	Timezone *string               `json:"timezone,omitempty"`
+	Username string                `json:"username"`
 }
 
 // CreateGroupRequest defines model for CreateGroupRequest.
@@ -170,14 +194,32 @@ type CreateGroupRequest struct {
 	Remark *string `json:"remark,omitempty"`
 }
 
+// CreateRoleRequest defines model for CreateRoleRequest.
+type CreateRoleRequest struct {
+	// Code Lowercase, start with a letter. Immutable once created.
+	Code        string  `json:"code"`
+	Description *string `json:"description,omitempty"`
+
+	// GroupId The owning group. Omit to use the caller's own group; only a root group administrator may name a different one.
+	GroupId *openapi_types.UUID `json:"groupId,omitempty"`
+	Name    string              `json:"name"`
+
+	// Permissions An empty list is allowed and grants nothing beyond the ability to sign in. Every entry must be a point the caller holds itself.
+	Permissions []string `json:"permissions"`
+}
+
 // CurrentUser defines model for CurrentUser.
 type CurrentUser struct {
 	DisplayName string             `json:"displayName"`
 	GroupCode   string             `json:"groupCode"`
 	GroupId     openapi_types.UUID `json:"groupId"`
 	Id          openapi_types.UUID `json:"id"`
-	Timezone    string             `json:"timezone"`
-	Username    string             `json:"username"`
+
+	// Permissions Every point the caller currently holds, flattened across its roles. This is what a client should gate its interface on: a role's name says nothing about what it grants, and its contents can change between two requests.
+	Permissions []string  `json:"permissions"`
+	Roles       []RoleRef `json:"roles"`
+	Timezone    string    `json:"timezone"`
+	Username    string    `json:"username"`
 }
 
 // CurrentUserEnvelope defines model for CurrentUserEnvelope.
@@ -321,6 +363,27 @@ type MoveGroupRequest struct {
 	NewParentId openapi_types.UUID `json:"newParentId"`
 }
 
+// Permission defines model for Permission.
+type Permission struct {
+	// Code Stable identifier such as `account:create`. Never localised: it is what a client branches on and what the server enforces.
+	Code string `json:"code"`
+
+	// Description English developer text describing the effect. A client that translates `code` itself should prefer its own text and keep this as a fallback.
+	Description string `json:"description"`
+
+	// Domain The area the point belongs to - `group`, `account` or `role`. Used to group the checkboxes in a role editor; not an enum, so a new area does not break an older client.
+	Domain string `json:"domain"`
+}
+
+// PermissionListEnvelope defines model for PermissionListEnvelope.
+type PermissionListEnvelope struct {
+	Data []Permission `json:"data"`
+	Ok   bool         `json:"ok"`
+
+	// TraceId Correlation id, always present, echoed from the X-Request-Id header when supplied.
+	TraceId string `json:"traceId"`
+}
+
 // ReorderGroupRequest defines model for ReorderGroupRequest.
 type ReorderGroupRequest struct {
 	Direction GroupDirection `json:"direction"`
@@ -329,6 +392,75 @@ type ReorderGroupRequest struct {
 // ResetPasswordRequest defines model for ResetPasswordRequest.
 type ResetPasswordRequest struct {
 	NewPassword string `json:"newPassword"`
+}
+
+// Role defines model for Role.
+type Role struct {
+	// Builtin Shipped by the installation rather than created by a person. Its code cannot change and it cannot be deleted, but what it grants can - that is how the two default roles stay useful.
+	Builtin     bool      `json:"builtin"`
+	Code        string    `json:"code"`
+	CreatedAt   time.Time `json:"createdAt"`
+	Description *string   `json:"description,omitempty"`
+
+	// GroupId The owning group. For a SYSTEM role this is the root group.
+	GroupId   *openapi_types.UUID `json:"groupId,omitempty"`
+	GroupName *string             `json:"groupName,omitempty"`
+	Id        openapi_types.UUID  `json:"id"`
+
+	// MemberCount Accounts currently holding this role, deleted ones excluded.
+	MemberCount int      `json:"memberCount"`
+	Name        string   `json:"name"`
+	Permissions []string `json:"permissions"`
+
+	// Scope SYSTEM roles belong to the root group. They are visible to every account in
+	// the installation, and only an administrator of the root group may change
+	// them. GROUP roles belong to one group, are visible inside its subtree, and
+	// exist for as long as that group does.
+	Scope     RoleScope `json:"scope"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// RoleEnvelope defines model for RoleEnvelope.
+type RoleEnvelope struct {
+	Data Role `json:"data"`
+	Ok   bool `json:"ok"`
+
+	// TraceId Correlation id, always present, echoed from the X-Request-Id header when supplied.
+	TraceId string `json:"traceId"`
+}
+
+// RoleListEnvelope defines model for RoleListEnvelope.
+type RoleListEnvelope struct {
+	Data []Role `json:"data"`
+	Ok   bool   `json:"ok"`
+
+	// TraceId Correlation id, always present, echoed from the X-Request-Id header when supplied.
+	TraceId string `json:"traceId"`
+}
+
+// RoleRef A role as it appears on an account. Deliberately not the whole role: an account list would otherwise carry every permission of every role on every row.
+type RoleRef struct {
+	Code string             `json:"code"`
+	Id   openapi_types.UUID `json:"id"`
+	Name string             `json:"name"`
+
+	// Scope SYSTEM roles belong to the root group. They are visible to every account in
+	// the installation, and only an administrator of the root group may change
+	// them. GROUP roles belong to one group, are visible inside its subtree, and
+	// exist for as long as that group does.
+	Scope RoleScope `json:"scope"`
+}
+
+// RoleScope SYSTEM roles belong to the root group. They are visible to every account in
+// the installation, and only an administrator of the root group may change
+// them. GROUP roles belong to one group, are visible inside its subtree, and
+// exist for as long as that group does.
+type RoleScope string
+
+// SetAccountRolesRequest defines model for SetAccountRolesRequest.
+type SetAccountRolesRequest struct {
+	// RoleIds The complete set. An empty list removes every role.
+	RoleIds []openapi_types.UUID `json:"roleIds"`
 }
 
 // UpdateAccountRequest defines model for UpdateAccountRequest.
@@ -356,11 +488,23 @@ type UpdateProfileRequest struct {
 	Timezone *string `json:"timezone,omitempty"`
 }
 
+// UpdateRoleRequest defines model for UpdateRoleRequest.
+type UpdateRoleRequest struct {
+	Description *string `json:"description,omitempty"`
+	Name        *string `json:"name,omitempty"`
+
+	// Permissions Replaces the whole set when present.
+	Permissions *[]string `json:"permissions,omitempty"`
+}
+
 // AccountId defines model for AccountId.
 type AccountId = openapi_types.UUID
 
 // GroupId defines model for GroupId.
 type GroupId = openapi_types.UUID
+
+// RoleId defines model for RoleId.
+type RoleId = openapi_types.UUID
 
 // ErrorResponse defines model for ErrorResponse.
 type ErrorResponse = ErrorEnvelope
@@ -394,6 +538,9 @@ type UpdateAccountJSONRequestBody = UpdateAccountRequest
 // ResetAccountPasswordJSONRequestBody defines body for ResetAccountPassword for application/json ContentType.
 type ResetAccountPasswordJSONRequestBody = ResetPasswordRequest
 
+// SetAccountRolesJSONRequestBody defines body for SetAccountRoles for application/json ContentType.
+type SetAccountRolesJSONRequestBody = SetAccountRolesRequest
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
@@ -414,6 +561,12 @@ type MoveGroupJSONRequestBody = MoveGroupRequest
 
 // ReorderGroupJSONRequestBody defines body for ReorderGroup for application/json ContentType.
 type ReorderGroupJSONRequestBody = ReorderGroupRequest
+
+// CreateRoleJSONRequestBody defines body for CreateRole for application/json ContentType.
+type CreateRoleJSONRequestBody = CreateRoleRequest
+
+// UpdateRoleJSONRequestBody defines body for UpdateRole for application/json ContentType.
+type UpdateRoleJSONRequestBody = UpdateRoleRequest
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -548,6 +701,38 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/v1/accounts/{accountId}/reset-password (the `ResetAccountPassword` operationId).
 	ResetAccountPassword(ctx context.Context, accountId AccountId, body ResetAccountPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetAccountRolesWithBody Replace the roles an account holds
+	//
+	// A full replacement, not a delta: the body is the complete set. An empty
+	// list is accepted and leaves the account able to sign in and change its own
+	// profile, and nothing else.
+	//
+	// Two rules reject the call. The caller may only hand out roles it can see
+	// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+	// change may not leave the installation without an account that can
+	// administer roles (`ACCOUNT_LAST_ADMIN`).
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /api/v1/accounts/{accountId}/roles (the `SetAccountRoles` operationId).
+	SetAccountRolesWithBody(ctx context.Context, accountId AccountId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetAccountRoles Replace the roles an account holds
+	//
+	// A full replacement, not a delta: the body is the complete set. An empty
+	// list is accepted and leaves the account able to sign in and change its own
+	// profile, and nothing else.
+	//
+	// Two rules reject the call. The caller may only hand out roles it can see
+	// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+	// change may not leave the installation without an account that can
+	// administer roles (`ACCOUNT_LAST_ADMIN`).
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /api/v1/accounts/{accountId}/roles (the `SetAccountRoles` operationId).
+	SetAccountRoles(ctx context.Context, accountId AccountId, body SetAccountRolesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// LoginWithBody Exchange credentials for an access token
 	//
@@ -710,6 +895,87 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/v1/groups/{groupId}/reorder (the `ReorderGroup` operationId).
 	ReorderGroup(ctx context.Context, groupId GroupId, body ReorderGroupJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListPermissions List every permission point this build enforces
+	//
+	// The catalogue is what a role may grant, so a client renders its role editor from this list rather than from a hard-coded one: a permission the server does not enforce must not appear as a choice.
+	//
+	// Corresponds with GET /api/v1/permissions (the `ListPermissions` operationId).
+	ListPermissions(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListRoles List the roles the caller may see
+	//
+	// The root group sees every role. Everyone else sees the roles of their own group together with those of its ancestors, because a role defined higher up the tree is one they can be given.
+	//
+	// Corresponds with GET /api/v1/roles (the `ListRoles` operationId).
+	ListRoles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateRoleWithBody Create a role
+	//
+	// `groupId` decides who the role belongs to. Omitted, it belongs to the
+	// caller's own group - which for a root administrator means the root group,
+	// and a role there is visible to the whole installation.
+	//
+	// Only a root group administrator may create a role for another group, and
+	// nobody may grant a permission they do not hold themselves.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/roles (the `CreateRole` operationId).
+	CreateRoleWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateRole Create a role
+	//
+	// `groupId` decides who the role belongs to. Omitted, it belongs to the
+	// caller's own group - which for a root administrator means the root group,
+	// and a role there is visible to the whole installation.
+	//
+	// Only a root group administrator may create a role for another group, and
+	// nobody may grant a permission they do not hold themselves.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/roles (the `CreateRole` operationId).
+	CreateRole(ctx context.Context, body CreateRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteRole Delete a role that nobody holds
+	//
+	// Rejected with `ROLE_IN_USE` while accounts still hold it, and with `ROLE_BUILTIN_PROTECTED` for the two roles a fresh installation ships with: deleting either would silently strip permissions from whoever holds it.
+	//
+	// Corresponds with DELETE /api/v1/roles/{roleId} (the `DeleteRole` operationId).
+	DeleteRole(ctx context.Context, roleId RoleId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateRoleWithBody Rename a role or change what it grants
+	//
+	// The code is immutable: it is what a role is referred to by in logs and
+	// support conversations. Renaming and re-granting are allowed at any time and
+	// take effect on the holder's next request, because authorisation is
+	// resolved per request rather than stored in the token.
+	//
+	// A built-in role cannot be deleted, and removing a permission a holder
+	// relies on takes effect immediately - which is why a change that would leave
+	// nobody able to administer roles is rejected.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /api/v1/roles/{roleId} (the `UpdateRole` operationId).
+	UpdateRoleWithBody(ctx context.Context, roleId RoleId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateRole Rename a role or change what it grants
+	//
+	// The code is immutable: it is what a role is referred to by in logs and
+	// support conversations. Renaming and re-granting are allowed at any time and
+	// take effect on the holder's next request, because authorisation is
+	// resolved per request rather than stored in the token.
+	//
+	// A built-in role cannot be deleted, and removing a permission a holder
+	// relies on takes effect immediately - which is why a change that would leave
+	// nobody able to administer roles is rejected.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /api/v1/roles/{roleId} (the `UpdateRole` operationId).
+	UpdateRole(ctx context.Context, roleId RoleId, body UpdateRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // ListAccounts List accounts inside the visible subtree
@@ -842,6 +1108,58 @@ func (c *Client) ResetAccountPasswordWithBody(ctx context.Context, accountId Acc
 // Corresponds with POST /api/v1/accounts/{accountId}/reset-password (the `ResetAccountPassword` operationId).
 func (c *Client) ResetAccountPassword(ctx context.Context, accountId AccountId, body ResetAccountPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewResetAccountPasswordRequest(c.Server, accountId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetAccountRolesWithBody Replace the roles an account holds
+//
+// A full replacement, not a delta: the body is the complete set. An empty
+// list is accepted and leaves the account able to sign in and change its own
+// profile, and nothing else.
+//
+// Two rules reject the call. The caller may only hand out roles it can see
+// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+// change may not leave the installation without an account that can
+// administer roles (`ACCOUNT_LAST_ADMIN`).
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /api/v1/accounts/{accountId}/roles (the `SetAccountRoles` operationId).
+func (c *Client) SetAccountRolesWithBody(ctx context.Context, accountId AccountId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetAccountRolesRequestWithBody(c.Server, accountId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetAccountRoles Replace the roles an account holds
+//
+// A full replacement, not a delta: the body is the complete set. An empty
+// list is accepted and leaves the account able to sign in and change its own
+// profile, and nothing else.
+//
+// Two rules reject the call. The caller may only hand out roles it can see
+// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+// change may not leave the installation without an account that can
+// administer roles (`ACCOUNT_LAST_ADMIN`).
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /api/v1/accounts/{accountId}/roles (the `SetAccountRoles` operationId).
+func (c *Client) SetAccountRoles(ctx context.Context, accountId AccountId, body SetAccountRolesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetAccountRolesRequest(c.Server, accountId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1194,6 +1512,157 @@ func (c *Client) ReorderGroup(ctx context.Context, groupId GroupId, body Reorder
 	return c.Client.Do(req)
 }
 
+// ListPermissions List every permission point this build enforces
+//
+// The catalogue is what a role may grant, so a client renders its role editor from this list rather than from a hard-coded one: a permission the server does not enforce must not appear as a choice.
+//
+// Corresponds with GET /api/v1/permissions (the `ListPermissions` operationId).
+func (c *Client) ListPermissions(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListPermissionsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListRoles List the roles the caller may see
+//
+// The root group sees every role. Everyone else sees the roles of their own group together with those of its ancestors, because a role defined higher up the tree is one they can be given.
+//
+// Corresponds with GET /api/v1/roles (the `ListRoles` operationId).
+func (c *Client) ListRoles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListRolesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateRoleWithBody Create a role
+//
+// `groupId` decides who the role belongs to. Omitted, it belongs to the
+// caller's own group - which for a root administrator means the root group,
+// and a role there is visible to the whole installation.
+//
+// Only a root group administrator may create a role for another group, and
+// nobody may grant a permission they do not hold themselves.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/roles (the `CreateRole` operationId).
+func (c *Client) CreateRoleWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateRoleRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateRole Create a role
+//
+// `groupId` decides who the role belongs to. Omitted, it belongs to the
+// caller's own group - which for a root administrator means the root group,
+// and a role there is visible to the whole installation.
+//
+// Only a root group administrator may create a role for another group, and
+// nobody may grant a permission they do not hold themselves.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/roles (the `CreateRole` operationId).
+func (c *Client) CreateRole(ctx context.Context, body CreateRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateRoleRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteRole Delete a role that nobody holds
+//
+// Rejected with `ROLE_IN_USE` while accounts still hold it, and with `ROLE_BUILTIN_PROTECTED` for the two roles a fresh installation ships with: deleting either would silently strip permissions from whoever holds it.
+//
+// Corresponds with DELETE /api/v1/roles/{roleId} (the `DeleteRole` operationId).
+func (c *Client) DeleteRole(ctx context.Context, roleId RoleId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteRoleRequest(c.Server, roleId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateRoleWithBody Rename a role or change what it grants
+//
+// The code is immutable: it is what a role is referred to by in logs and
+// support conversations. Renaming and re-granting are allowed at any time and
+// take effect on the holder's next request, because authorisation is
+// resolved per request rather than stored in the token.
+//
+// A built-in role cannot be deleted, and removing a permission a holder
+// relies on takes effect immediately - which is why a change that would leave
+// nobody able to administer roles is rejected.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /api/v1/roles/{roleId} (the `UpdateRole` operationId).
+func (c *Client) UpdateRoleWithBody(ctx context.Context, roleId RoleId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateRoleRequestWithBody(c.Server, roleId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateRole Rename a role or change what it grants
+//
+// The code is immutable: it is what a role is referred to by in logs and
+// support conversations. Renaming and re-granting are allowed at any time and
+// take effect on the holder's next request, because authorisation is
+// resolved per request rather than stored in the token.
+//
+// A built-in role cannot be deleted, and removing a permission a holder
+// relies on takes effect immediately - which is why a change that would leave
+// nobody able to administer roles is rejected.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /api/v1/roles/{roleId} (the `UpdateRole` operationId).
+func (c *Client) UpdateRole(ctx context.Context, roleId RoleId, body UpdateRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateRoleRequest(c.Server, roleId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // NewListAccountsRequest constructs an http.Request for the ListAccounts method
 func NewListAccountsRequest(server string, params *ListAccountsParams) (*http.Request, error) {
 	var err error
@@ -1467,6 +1936,53 @@ func NewResetAccountPasswordRequestWithBody(server string, accountId AccountId, 
 	}
 
 	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewSetAccountRolesRequest calls the generic SetAccountRoles builder with application/json body
+func NewSetAccountRolesRequest(server string, accountId AccountId, body SetAccountRolesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetAccountRolesRequestWithBody(server, accountId, "application/json", bodyReader)
+}
+
+// NewSetAccountRolesRequestWithBody constructs an http.Request for the SetAccountRoles method, with any body, and a specified content type
+func NewSetAccountRolesRequestWithBody(server string, accountId AccountId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "accountId", accountId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/accounts/%s/roles", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -1899,6 +2415,181 @@ func NewReorderGroupRequestWithBody(server string, groupId GroupId, contentType 
 	return req, nil
 }
 
+// NewListPermissionsRequest constructs an http.Request for the ListPermissions method
+func NewListPermissionsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/permissions")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListRolesRequest constructs an http.Request for the ListRoles method
+func NewListRolesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/roles")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateRoleRequest calls the generic CreateRole builder with application/json body
+func NewCreateRoleRequest(server string, body CreateRoleJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateRoleRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateRoleRequestWithBody constructs an http.Request for the CreateRole method, with any body, and a specified content type
+func NewCreateRoleRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/roles")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteRoleRequest constructs an http.Request for the DeleteRole method
+func NewDeleteRoleRequest(server string, roleId RoleId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "roleId", roleId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/roles/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateRoleRequest calls the generic UpdateRole builder with application/json body
+func NewUpdateRoleRequest(server string, roleId RoleId, body UpdateRoleJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateRoleRequestWithBody(server, roleId, "application/json", bodyReader)
+}
+
+// NewUpdateRoleRequestWithBody constructs an http.Request for the UpdateRole method, with any body, and a specified content type
+func NewUpdateRoleRequestWithBody(server string, roleId RoleId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "roleId", roleId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/roles/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -2006,6 +2697,38 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/v1/accounts/{accountId}/reset-password (the `ResetAccountPassword` operationId).
 	ResetAccountPasswordWithResponse(ctx context.Context, accountId AccountId, body ResetAccountPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ResetAccountPasswordResponse, error)
+
+	// SetAccountRolesWithBodyWithResponse Replace the roles an account holds
+	//
+	// A full replacement, not a delta: the body is the complete set. An empty
+	// list is accepted and leaves the account able to sign in and change its own
+	// profile, and nothing else.
+	//
+	// Two rules reject the call. The caller may only hand out roles it can see
+	// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+	// change may not leave the installation without an account that can
+	// administer roles (`ACCOUNT_LAST_ADMIN`).
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/v1/accounts/{accountId}/roles (the `SetAccountRoles` operationId).
+	SetAccountRolesWithBodyWithResponse(ctx context.Context, accountId AccountId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetAccountRolesResponse, error)
+
+	// SetAccountRolesWithResponse Replace the roles an account holds
+	//
+	// A full replacement, not a delta: the body is the complete set. An empty
+	// list is accepted and leaves the account able to sign in and change its own
+	// profile, and nothing else.
+	//
+	// Two rules reject the call. The caller may only hand out roles it can see
+	// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+	// change may not leave the installation without an account that can
+	// administer roles (`ACCOUNT_LAST_ADMIN`).
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/v1/accounts/{accountId}/roles (the `SetAccountRoles` operationId).
+	SetAccountRolesWithResponse(ctx context.Context, accountId AccountId, body SetAccountRolesJSONRequestBody, reqEditors ...RequestEditorFn) (*SetAccountRolesResponse, error)
 
 	// LoginWithBodyWithResponse Exchange credentials for an access token
 	//
@@ -2176,6 +2899,93 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/v1/groups/{groupId}/reorder (the `ReorderGroup` operationId).
 	ReorderGroupWithResponse(ctx context.Context, groupId GroupId, body ReorderGroupJSONRequestBody, reqEditors ...RequestEditorFn) (*ReorderGroupResponse, error)
+
+	// ListPermissionsWithResponse List every permission point this build enforces
+	//
+	// The catalogue is what a role may grant, so a client renders its role editor from this list rather than from a hard-coded one: a permission the server does not enforce must not appear as a choice.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/permissions (the `ListPermissions` operationId).
+	ListPermissionsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListPermissionsResponse, error)
+
+	// ListRolesWithResponse List the roles the caller may see
+	//
+	// The root group sees every role. Everyone else sees the roles of their own group together with those of its ancestors, because a role defined higher up the tree is one they can be given.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/roles (the `ListRoles` operationId).
+	ListRolesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListRolesResponse, error)
+
+	// CreateRoleWithBodyWithResponse Create a role
+	//
+	// `groupId` decides who the role belongs to. Omitted, it belongs to the
+	// caller's own group - which for a root administrator means the root group,
+	// and a role there is visible to the whole installation.
+	//
+	// Only a root group administrator may create a role for another group, and
+	// nobody may grant a permission they do not hold themselves.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/roles (the `CreateRole` operationId).
+	CreateRoleWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateRoleResponse, error)
+
+	// CreateRoleWithResponse Create a role
+	//
+	// `groupId` decides who the role belongs to. Omitted, it belongs to the
+	// caller's own group - which for a root administrator means the root group,
+	// and a role there is visible to the whole installation.
+	//
+	// Only a root group administrator may create a role for another group, and
+	// nobody may grant a permission they do not hold themselves.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/roles (the `CreateRole` operationId).
+	CreateRoleWithResponse(ctx context.Context, body CreateRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateRoleResponse, error)
+
+	// DeleteRoleWithResponse Delete a role that nobody holds
+	//
+	// Rejected with `ROLE_IN_USE` while accounts still hold it, and with `ROLE_BUILTIN_PROTECTED` for the two roles a fresh installation ships with: deleting either would silently strip permissions from whoever holds it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /api/v1/roles/{roleId} (the `DeleteRole` operationId).
+	DeleteRoleWithResponse(ctx context.Context, roleId RoleId, reqEditors ...RequestEditorFn) (*DeleteRoleResponse, error)
+
+	// UpdateRoleWithBodyWithResponse Rename a role or change what it grants
+	//
+	// The code is immutable: it is what a role is referred to by in logs and
+	// support conversations. Renaming and re-granting are allowed at any time and
+	// take effect on the holder's next request, because authorisation is
+	// resolved per request rather than stored in the token.
+	//
+	// A built-in role cannot be deleted, and removing a permission a holder
+	// relies on takes effect immediately - which is why a change that would leave
+	// nobody able to administer roles is rejected.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/v1/roles/{roleId} (the `UpdateRole` operationId).
+	UpdateRoleWithBodyWithResponse(ctx context.Context, roleId RoleId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateRoleResponse, error)
+
+	// UpdateRoleWithResponse Rename a role or change what it grants
+	//
+	// The code is immutable: it is what a role is referred to by in logs and
+	// support conversations. Renaming and re-granting are allowed at any time and
+	// take effect on the holder's next request, because authorisation is
+	// resolved per request rather than stored in the token.
+	//
+	// A built-in role cannot be deleted, and removing a permission a holder
+	// relies on takes effect immediately - which is why a change that would leave
+	// nobody able to administer roles is rejected.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/v1/roles/{roleId} (the `UpdateRole` operationId).
+	UpdateRoleWithResponse(ctx context.Context, roleId RoleId, body UpdateRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateRoleResponse, error)
 }
 
 type ListAccountsResponse struct {
@@ -2412,6 +3222,54 @@ func (r ResetAccountPasswordResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ResetAccountPasswordResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetAccountRolesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AccountEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetAccountRolesResponse) GetJSON200() *AccountEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetAccountRolesResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetAccountRolesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetAccountRolesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetAccountRolesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetAccountRolesResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -2946,6 +3804,246 @@ func (r ReorderGroupResponse) ContentType() string {
 	return ""
 }
 
+type ListPermissionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *PermissionListEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListPermissionsResponse) GetJSON200() *PermissionListEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListPermissionsResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListPermissionsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListPermissionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListPermissionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListPermissionsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListRolesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RoleListEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListRolesResponse) GetJSON200() *RoleListEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListRolesResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListRolesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListRolesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListRolesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListRolesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateRoleResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *RoleEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateRoleResponse) GetJSON201() *RoleEnvelope {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreateRoleResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateRoleResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateRoleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateRoleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateRoleResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteRoleResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *EmptyEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DeleteRoleResponse) GetJSON200() *EmptyEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteRoleResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteRoleResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteRoleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteRoleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteRoleResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateRoleResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RoleEnvelope
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateRoleResponse) GetJSON200() *RoleEnvelope {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r UpdateRoleResponse) GetJSONDefault() *ErrorResponse {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateRoleResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateRoleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateRoleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateRoleResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // ListAccountsWithResponse List accounts inside the visible subtree
 //
 // Returns a wrapper object for the known response body format(s).
@@ -3056,6 +4154,50 @@ func (c *ClientWithResponses) ResetAccountPasswordWithResponse(ctx context.Conte
 		return nil, err
 	}
 	return ParseResetAccountPasswordResponse(rsp)
+}
+
+// SetAccountRolesWithBodyWithResponse Replace the roles an account holds
+//
+// A full replacement, not a delta: the body is the complete set. An empty
+// list is accepted and leaves the account able to sign in and change its own
+// profile, and nothing else.
+//
+// Two rules reject the call. The caller may only hand out roles it can see
+// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+// change may not leave the installation without an account that can
+// administer roles (`ACCOUNT_LAST_ADMIN`).
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/v1/accounts/{accountId}/roles (the `SetAccountRoles` operationId).
+func (c *ClientWithResponses) SetAccountRolesWithBodyWithResponse(ctx context.Context, accountId AccountId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetAccountRolesResponse, error) {
+	rsp, err := c.SetAccountRolesWithBody(ctx, accountId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetAccountRolesResponse(rsp)
+}
+
+// SetAccountRolesWithResponse Replace the roles an account holds
+//
+// A full replacement, not a delta: the body is the complete set. An empty
+// list is accepted and leaves the account able to sign in and change its own
+// profile, and nothing else.
+//
+// Two rules reject the call. The caller may only hand out roles it can see
+// and only permissions it holds itself (`ROLE_PERMISSION_EXCEEDED`). And the
+// change may not leave the installation without an account that can
+// administer roles (`ACCOUNT_LAST_ADMIN`).
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/v1/accounts/{accountId}/roles (the `SetAccountRoles` operationId).
+func (c *ClientWithResponses) SetAccountRolesWithResponse(ctx context.Context, accountId AccountId, body SetAccountRolesJSONRequestBody, reqEditors ...RequestEditorFn) (*SetAccountRolesResponse, error) {
+	rsp, err := c.SetAccountRoles(ctx, accountId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetAccountRolesResponse(rsp)
 }
 
 // LoginWithBodyWithResponse Exchange credentials for an access token
@@ -3336,6 +4478,135 @@ func (c *ClientWithResponses) ReorderGroupWithResponse(ctx context.Context, grou
 	return ParseReorderGroupResponse(rsp)
 }
 
+// ListPermissionsWithResponse List every permission point this build enforces
+//
+// The catalogue is what a role may grant, so a client renders its role editor from this list rather than from a hard-coded one: a permission the server does not enforce must not appear as a choice.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/permissions (the `ListPermissions` operationId).
+func (c *ClientWithResponses) ListPermissionsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListPermissionsResponse, error) {
+	rsp, err := c.ListPermissions(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListPermissionsResponse(rsp)
+}
+
+// ListRolesWithResponse List the roles the caller may see
+//
+// The root group sees every role. Everyone else sees the roles of their own group together with those of its ancestors, because a role defined higher up the tree is one they can be given.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/roles (the `ListRoles` operationId).
+func (c *ClientWithResponses) ListRolesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListRolesResponse, error) {
+	rsp, err := c.ListRoles(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListRolesResponse(rsp)
+}
+
+// CreateRoleWithBodyWithResponse Create a role
+//
+// `groupId` decides who the role belongs to. Omitted, it belongs to the
+// caller's own group - which for a root administrator means the root group,
+// and a role there is visible to the whole installation.
+//
+// Only a root group administrator may create a role for another group, and
+// nobody may grant a permission they do not hold themselves.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/roles (the `CreateRole` operationId).
+func (c *ClientWithResponses) CreateRoleWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateRoleResponse, error) {
+	rsp, err := c.CreateRoleWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateRoleResponse(rsp)
+}
+
+// CreateRoleWithResponse Create a role
+//
+// `groupId` decides who the role belongs to. Omitted, it belongs to the
+// caller's own group - which for a root administrator means the root group,
+// and a role there is visible to the whole installation.
+//
+// Only a root group administrator may create a role for another group, and
+// nobody may grant a permission they do not hold themselves.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/roles (the `CreateRole` operationId).
+func (c *ClientWithResponses) CreateRoleWithResponse(ctx context.Context, body CreateRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateRoleResponse, error) {
+	rsp, err := c.CreateRole(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateRoleResponse(rsp)
+}
+
+// DeleteRoleWithResponse Delete a role that nobody holds
+//
+// Rejected with `ROLE_IN_USE` while accounts still hold it, and with `ROLE_BUILTIN_PROTECTED` for the two roles a fresh installation ships with: deleting either would silently strip permissions from whoever holds it.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /api/v1/roles/{roleId} (the `DeleteRole` operationId).
+func (c *ClientWithResponses) DeleteRoleWithResponse(ctx context.Context, roleId RoleId, reqEditors ...RequestEditorFn) (*DeleteRoleResponse, error) {
+	rsp, err := c.DeleteRole(ctx, roleId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteRoleResponse(rsp)
+}
+
+// UpdateRoleWithBodyWithResponse Rename a role or change what it grants
+//
+// The code is immutable: it is what a role is referred to by in logs and
+// support conversations. Renaming and re-granting are allowed at any time and
+// take effect on the holder's next request, because authorisation is
+// resolved per request rather than stored in the token.
+//
+// A built-in role cannot be deleted, and removing a permission a holder
+// relies on takes effect immediately - which is why a change that would leave
+// nobody able to administer roles is rejected.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/v1/roles/{roleId} (the `UpdateRole` operationId).
+func (c *ClientWithResponses) UpdateRoleWithBodyWithResponse(ctx context.Context, roleId RoleId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateRoleResponse, error) {
+	rsp, err := c.UpdateRoleWithBody(ctx, roleId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateRoleResponse(rsp)
+}
+
+// UpdateRoleWithResponse Rename a role or change what it grants
+//
+// The code is immutable: it is what a role is referred to by in logs and
+// support conversations. Renaming and re-granting are allowed at any time and
+// take effect on the holder's next request, because authorisation is
+// resolved per request rather than stored in the token.
+//
+// A built-in role cannot be deleted, and removing a permission a holder
+// relies on takes effect immediately - which is why a change that would leave
+// nobody able to administer roles is rejected.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/v1/roles/{roleId} (the `UpdateRole` operationId).
+func (c *ClientWithResponses) UpdateRoleWithResponse(ctx context.Context, roleId RoleId, body UpdateRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateRoleResponse, error) {
+	rsp, err := c.UpdateRole(ctx, roleId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateRoleResponse(rsp)
+}
+
 // ParseListAccountsResponse parses an HTTP response from a ListAccountsWithResponse call
 func ParseListAccountsResponse(rsp *http.Response) (*ListAccountsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -3484,6 +4755,39 @@ func ParseResetAccountPasswordResponse(rsp *http.Response) (*ResetAccountPasswor
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest EmptyEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetAccountRolesResponse parses an HTTP response from a SetAccountRolesWithResponse call
+func ParseSetAccountRolesResponse(rsp *http.Response) (*SetAccountRolesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetAccountRolesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AccountEnvelope
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -3864,6 +5168,171 @@ func ParseReorderGroupResponse(rsp *http.Response) (*ReorderGroupResponse, error
 	return response, nil
 }
 
+// ParseListPermissionsResponse parses an HTTP response from a ListPermissionsWithResponse call
+func ParseListPermissionsResponse(rsp *http.Response) (*ListPermissionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListPermissionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PermissionListEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListRolesResponse parses an HTTP response from a ListRolesWithResponse call
+func ParseListRolesResponse(rsp *http.Response) (*ListRolesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListRolesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RoleListEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateRoleResponse parses an HTTP response from a CreateRoleWithResponse call
+func ParseCreateRoleResponse(rsp *http.Response) (*CreateRoleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateRoleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest RoleEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteRoleResponse parses an HTTP response from a DeleteRoleWithResponse call
+func ParseDeleteRoleResponse(rsp *http.Response) (*DeleteRoleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteRoleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EmptyEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateRoleResponse parses an HTTP response from a UpdateRoleWithResponse call
+func ParseUpdateRoleResponse(rsp *http.Response) (*UpdateRoleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateRoleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RoleEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// ListAccounts List accounts inside the visible subtree
@@ -3881,6 +5350,9 @@ type ServerInterface interface {
 	// ResetAccountPassword Set a new password and invalidate existing tokens
 	// (POST /api/v1/accounts/{accountId}/reset-password)
 	ResetAccountPassword(w http.ResponseWriter, r *http.Request, accountId AccountId)
+	// SetAccountRoles Replace the roles an account holds
+	// (PUT /api/v1/accounts/{accountId}/roles)
+	SetAccountRoles(w http.ResponseWriter, r *http.Request, accountId AccountId)
 	// Login Exchange credentials for an access token
 	// (POST /api/v1/auth/login)
 	Login(w http.ResponseWriter, r *http.Request)
@@ -3914,6 +5386,21 @@ type ServerInterface interface {
 	// ReorderGroup Swap a group with the sibling above or below it
 	// (POST /api/v1/groups/{groupId}/reorder)
 	ReorderGroup(w http.ResponseWriter, r *http.Request, groupId GroupId)
+	// ListPermissions List every permission point this build enforces
+	// (GET /api/v1/permissions)
+	ListPermissions(w http.ResponseWriter, r *http.Request)
+	// ListRoles List the roles the caller may see
+	// (GET /api/v1/roles)
+	ListRoles(w http.ResponseWriter, r *http.Request)
+	// CreateRole Create a role
+	// (POST /api/v1/roles)
+	CreateRole(w http.ResponseWriter, r *http.Request)
+	// DeleteRole Delete a role that nobody holds
+	// (DELETE /api/v1/roles/{roleId})
+	DeleteRole(w http.ResponseWriter, r *http.Request, roleId RoleId)
+	// UpdateRole Rename a role or change what it grants
+	// (PATCH /api/v1/roles/{roleId})
+	UpdateRole(w http.ResponseWriter, r *http.Request, roleId RoleId)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -3947,6 +5434,12 @@ func (_ Unimplemented) UpdateAccount(w http.ResponseWriter, r *http.Request, acc
 // ResetAccountPassword Set a new password and invalidate existing tokens
 // (POST /api/v1/accounts/{accountId}/reset-password)
 func (_ Unimplemented) ResetAccountPassword(w http.ResponseWriter, r *http.Request, accountId AccountId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// SetAccountRoles Replace the roles an account holds
+// (PUT /api/v1/accounts/{accountId}/roles)
+func (_ Unimplemented) SetAccountRoles(w http.ResponseWriter, r *http.Request, accountId AccountId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4013,6 +5506,36 @@ func (_ Unimplemented) MoveGroup(w http.ResponseWriter, r *http.Request, groupId
 // ReorderGroup Swap a group with the sibling above or below it
 // (POST /api/v1/groups/{groupId}/reorder)
 func (_ Unimplemented) ReorderGroup(w http.ResponseWriter, r *http.Request, groupId GroupId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListPermissions List every permission point this build enforces
+// (GET /api/v1/permissions)
+func (_ Unimplemented) ListPermissions(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListRoles List the roles the caller may see
+// (GET /api/v1/roles)
+func (_ Unimplemented) ListRoles(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateRole Create a role
+// (POST /api/v1/roles)
+func (_ Unimplemented) CreateRole(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteRole Delete a role that nobody holds
+// (DELETE /api/v1/roles/{roleId})
+func (_ Unimplemented) DeleteRole(w http.ResponseWriter, r *http.Request, roleId RoleId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateRole Rename a role or change what it grants
+// (PATCH /api/v1/roles/{roleId})
+func (_ Unimplemented) UpdateRole(w http.ResponseWriter, r *http.Request, roleId RoleId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4206,6 +5729,32 @@ func (siw *ServerInterfaceWrapper) ResetAccountPassword(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ResetAccountPassword(w, r, accountId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetAccountRoles operation middleware
+func (siw *ServerInterfaceWrapper) SetAccountRoles(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "accountId" -------------
+	var accountId AccountId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "accountId", chi.URLParam(r, "accountId"), &accountId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "accountId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetAccountRoles(w, r, accountId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4429,6 +5978,100 @@ func (siw *ServerInterfaceWrapper) ReorderGroup(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListPermissions operation middleware
+func (siw *ServerInterfaceWrapper) ListPermissions(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPermissions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRoles operation middleware
+func (siw *ServerInterfaceWrapper) ListRoles(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRoles(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateRole operation middleware
+func (siw *ServerInterfaceWrapper) CreateRole(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateRole(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteRole operation middleware
+func (siw *ServerInterfaceWrapper) DeleteRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roleId" -------------
+	var roleId RoleId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roleId", chi.URLParam(r, "roleId"), &roleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roleId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteRole(w, r, roleId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateRole operation middleware
+func (siw *ServerInterfaceWrapper) UpdateRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roleId" -------------
+	var roleId RoleId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roleId", chi.URLParam(r, "roleId"), &roleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roleId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateRole(w, r, roleId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -4589,6 +6232,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/accounts/{accountId}/reset-password", wrapper.ResetAccountPassword)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/accounts/{accountId}/roles", wrapper.SetAccountRoles)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/permissions", wrapper.ListPermissions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/roles", wrapper.ListRoles)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/roles", wrapper.CreateRole)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/roles/{roleId}", wrapper.DeleteRole)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/roles/{roleId}", wrapper.UpdateRole)
 	})
 
 	return r
